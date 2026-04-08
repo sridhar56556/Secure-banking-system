@@ -235,7 +235,7 @@ const RegisterScreen = ({ setView }) => {
     const newUser = register(formData);
     const useRealEmail = window.emailjs && emailConfig?.serviceId !== 'YOUR_SERVICE_ID' && emailConfig?.serviceId;
     
-    // Attempt EmailJS first (if configured), otherwise fallback to the Node backend server
+    // Attempt EmailJS first (if configured), otherwise fallback to SMTP.js using the provided credentials
     if (useRealEmail) {
       const templateParams = {
         to_email: newUser.email,
@@ -243,7 +243,7 @@ const RegisterScreen = ({ setView }) => {
         otp_code: newUser.expectedOtp
       };
 
-      addNotification('Attempting to transmit verification code...', 'info');
+      addNotification('Attempting to transmit verification code via EmailJS...', 'info');
 
       window.emailjs.send(
         emailConfig.serviceId,
@@ -260,32 +260,47 @@ const RegisterScreen = ({ setView }) => {
         setOtpToSimulate(newUser.expectedOtp);
       });
     } else {
-      // Backend Fallback (Works on mobile when using local IP or a hosted backend!)
-      addNotification('Attempting to transmit verification code securely...', 'info');
+      // SMTP.js Direct Fallback (Works on GitHub Pages without backend!)
+      addNotification('Attempting to transmit verification code securely via SMTP...', 'info');
       try {
-         // Dynamically build URL to support mobile devices connecting to the desktop
-         // Or use VITE_BACKEND_URL from environment if deployed
-         const defaultBackendUrl = `${window.location.protocol}//${window.location.hostname}:5000/send-otp`;
-         const backendUrl = import.meta.env.VITE_BACKEND_URL || defaultBackendUrl;
-         
-         const response = await fetch(backendUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-               email: newUser.email,
-               name: newUser.name,
-               expectedOtp: newUser.expectedOtp
-            })
-         });
-
-         if (response.ok) {
-            addNotification('OTP sent successfully to ' + newUser.email, 'success');
-            setView('otp');
-         } else {
-            throw new Error('Backend responded with an error. Is server.js running?');
+         if (!window.Email) {
+            throw new Error("SMTP.js library not loaded yet.");
          }
+
+         const emailBody = `
+           <div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
+             <h2 style="color: #2563eb; text-align: center;">NeoBank Identity Verification</h2>
+             <p>Hi ${newUser.name.split(' ')[0]},</p>
+             <p>Please use the following 4-digit code to verify your email address. Do not share this code with anyone.</p>
+             <div style="background-color: #f3f4f6; padding: 20px; border-radius: 10px; text-align: center; margin: 20px 0;">
+               <h1 style="font-size: 40px; letter-spacing: 10px; color: #1d4ed8; margin: 0;">${newUser.expectedOtp}</h1>
+             </div>
+             <p style="font-size: 12px; color: #6b7280; text-align: center;">Sent securely via NeoBank</p>
+           </div>
+         `;
+
+         window.Email.send({
+            Host: "smtp.gmail.com",
+            Username: "bossremo665@gmail.com",
+            Password: "gmksfowbjmacjsot",
+            To: newUser.email,
+            From: "bossremo665@gmail.com",
+            Subject: "NeoBank - Your OTP Verification Code",
+            Body: emailBody
+         }).then(message => {
+            if (message === "OK") {
+               addNotification('OTP sent successfully to ' + newUser.email, 'success');
+               setView('otp');
+            } else {
+               throw new Error('SMTP Error: ' + message);
+            }
+         }).catch(err => {
+            console.error('SMTP Catch Error:', err);
+            addNotification('Email delivery failed. Opening securely in Simulation Mode.', 'error');
+            setOtpToSimulate(newUser.expectedOtp);
+         });
       } catch (err) {
-         console.error('Backend Error:', err);
+         console.error('SMTP Setup Error:', err);
          addNotification('Email delivery failed. Opening securely in Simulation Mode.', 'error');
          setOtpToSimulate(newUser.expectedOtp);
       }
