@@ -259,11 +259,14 @@ const RegisterScreen = ({ setView }) => {
         setView('otp');
       });
     } else {
-      // Backend send-otp Fallback
+      // Backend send-otp Fallback (using secure tunnel to local PC)
       addNotification('Sending secure verification code...', 'info');
-      fetch('http://localhost:5000/send-otp', {
+      fetch('https://salty-chicken-beam.loca.lt/send-otp', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+           'Content-Type': 'application/json',
+           'Bypass-Tunnel-Reminder': 'true'
+        },
         body: JSON.stringify({ email: newUser.email, name: newUser.name, expectedOtp: newUser.expectedOtp })
       })
       .then(res => {
