@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NeoBank | Modern Banking Simulator</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --primary: #5c62ec;
+      --primary-dark: #4a4edf;
+      --success: #00e676;
+      --error: #ff5252;
+      --info: #40c4ff;
+      --glass-bg: rgba(255,255,255,0.04);
+      --glass-border: rgba(255,255,255,0.12);
+    }
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background: #050510;
+      background-image: radial-gradient(ellipse at 20% 20%, #0d0d2b 0%, #050510 60%),
+                        radial-gradient(ellipse at 80% 80%, #0a0a25 0%, transparent 60%);
+      min-height: 100vh;
+      color: #fff;
+    }
+    #root { min-height: 100vh; }
+
+    /* Glass */
+    .glass {
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      border-radius: 20px;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+    }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      padding: 14px 28px; border-radius: 14px; font-size: 1rem;
+      font-weight: 700; cursor: pointer; border: none; transition: all 0.25s ease;
+      font-family: inherit;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(92,98,236,0.35);
+    }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(92,98,236,0.5); filter: brightness(1.1); }
+    .btn-ghost {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: #fff;
+    }
+    .btn-ghost:hover { background: rgba(255,255,255,0.1); }
+    .btn-danger { background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3); color: #ff5252; }
+    .btn-danger:hover { background: rgba(239,68,68,0.25); }
+    .w-full { width: 100%; }
+
+    /* Inputs */
+    .input {
+      width: 100%; padding: 14px 18px; background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12); border-radius: 14px;
+      color: #fff; font-size: 1rem; font-family: inherit; transition: all 0.2s;
+    }
+    .input:focus { outline: none; border-color: var(--primary); background: rgba(92,98,236,0.08); box-shadow: 0 0 0 4px rgba(92,98,236,0.1); }
+    .input::placeholder { color: rgba(255,255,255,0.3); }
+    .input-center { text-align: center; letter-spacing: 0.4em; font-size: 1.6rem; font-weight: 800; }
+
+    /* Layout */
+    .container { max-width: 1200px; margin: 0 auto; padding: 32px 24px; }
+    .center-page {
+      min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px;
+    }
+    .card { padding: 40px; }
+
+    /* Toast */
+    #toast-container {
+      position: fixed; top: 24px; right: 24px; z-index: 9999;
+      display: flex; flex-direction: column; gap: 12px; pointer-events: none;
+    }
+    .toast {
+      padding: 14px 20px; border-radius: 14px; font-weight: 600; font-size: 0.9rem;
+      backdrop-filter: blur(12px); pointer-events: auto; min-width: 260px;
+      border-left: 4px solid transparent; animation: slideIn 0.3s ease;
+      background: rgba(10,10,30,0.9); border-color: var(--info);
+    }
+    .toast.success { border-color: var(--success); }
+    .toast.error { border-color: var(--error); }
+    @keyframes slideIn { from { opacity:0; transform:translateX(40px); } to { opacity:1; transform:translateX(0); } }
+    @keyframes fadeUp { from { opacity:0; transform:translateY(24px); } to { opacity:1; transform:translateY(0); } }
+    .page-enter { animation: fadeUp 0.4s ease forwards; }
+
+    /* Dashboard grid */
+    .dash-grid { display: grid; grid-template-columns: 1fr 360px; gap: 28px; align-items: start; }
+    @media (max-width: 900px) { .dash-grid { grid-template-columns: 1fr; } }
+    .left-stack { display: flex; flex-direction: column; gap: 24px; }
+    label { font-size: 0.8rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.45); display: block; margin-bottom: 8px; }
+
+    /* Balance card */
+    .balance-card { padding: 36px; position: relative; overflow: hidden; }
+    .balance-card::before {
+      content: ''; position: absolute; top: -60px; right: -60px;
+      width: 200px; height: 200px;
+      background: radial-gradient(circle, rgba(92,98,236,0.25) 0%, transparent 70%);
+      border-radius: 50%;
+    }
+    .balance-amount { font-size: 3.2rem; font-weight: 900; line-height: 1; }
+    .balance-label { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(255,255,255,0.4); margin-bottom: 12px; }
+
+    /* Debit card visual */
+    .card-visual {
+      padding: 28px; border-radius: 20px; position: relative; overflow: hidden; cursor: pointer;
+      transition: transform 0.25s; min-height: 180px;
+    }
+    .card-visual:hover { transform: translateY(-4px) scale(1.01); }
+    .card-visa { background: linear-gradient(135deg, #1a1a5e, #0d0d30); }
+    .card-metal { background: linear-gradient(135deg, #3d1557, #1a0a2e); }
+    .card-number { font-family: monospace; font-size: 1.15rem; letter-spacing: 0.18em; margin: 24px 0 18px; }
+    .card-label { font-size: 0.65rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255,255,255,0.4); }
+    .card-badge { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; }
+    .card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+    /* Account row */
+    .account-row {
+      display: flex; gap: 12px; overflow-x: auto; padding-bottom: 4px;
+      scrollbar-width: none;
+    }
+    .account-row::-webkit-scrollbar { display: none; }
+    .account-chip {
+      flex-shrink: 0; padding: 14px 18px; border-radius: 14px; cursor: pointer;
+      border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.04);
+      transition: all 0.2s; min-width: 150px;
+    }
+    .account-chip:hover { border-color: rgba(255,255,255,0.2); }
+    .account-chip.active { border-color: var(--primary); background: rgba(92,98,236,0.15); box-shadow: 0 0 20px rgba(92,98,236,0.2); }
+    .account-chip-add {
+      flex-shrink: 0; min-width: 60px; padding: 14px; border-radius: 14px; cursor: pointer;
+      border: 1px dashed rgba(255,255,255,0.2); background: transparent; color: rgba(255,255,255,0.4);
+      font-size: 1.6rem; display: flex; align-items: center; justify-content: center; transition: all 0.2s;
+    }
+    .account-chip-add:hover { border-color: var(--primary); color: var(--primary); }
+
+    /* Btn row */
+    .btn-row { display: flex; gap: 12px; flex-wrap: wrap; }
+
+    /* History */
+    .history-card { padding: 0; overflow: hidden; }
+    .history-header { padding: 24px 28px; border-bottom: 1px solid rgba(255,255,255,0.07); }
+    .history-body { padding: 8px 0; max-height: 500px; overflow-y: auto; }
+    .history-body::-webkit-scrollbar { width: 4px; }
+    .history-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+    .tx-row { padding: 18px 28px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.04); transition: background 0.15s; gap: 12px; }
+    .tx-row:hover { background: rgba(255,255,255,0.03); }
+    .tx-row:last-child { border-bottom: none; }
+    .tx-icon { width: 42px; height: 42px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0; }
+    .tx-credit .tx-icon { background: rgba(0,230,118,0.12); }
+    .tx-debit .tx-icon { background: rgba(255,82,82,0.12); }
+    .tx-desc { font-weight: 600; font-size: 0.9rem; }
+    .tx-meta { font-size: 0.72rem; color: rgba(255,255,255,0.35); font-weight: 600; margin-top: 3px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .tx-amount { font-weight: 800; font-size: 1rem; text-align: right; }
+    .credit { color: #00e676; }
+    .debit { color: rgba(255,255,255,0.85); }
+    .empty-state { padding: 60px 28px; text-align: center; color: rgba(255,255,255,0.25); font-size: 0.9rem; }
+
+    /* Modal overlay */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.75);
+      backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center;
+      z-index: 1000; padding: 24px; animation: fadeUp 0.2s ease;
+    }
+    .modal { padding: 36px; width: 100%; max-width: 440px; }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; }
+    .close-btn { background: rgba(255,255,255,0.06); border: none; color: #fff; width: 36px; height: 36px; border-radius: 10px; cursor: pointer; font-size: 1.2rem; display:flex;align-items:center;justify-content:center; transition: background 0.2s; }
+    .close-btn:hover { background: rgba(255,255,255,0.12); }
+    .method-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; }
+    .method-btn { padding: 10px 6px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.6); font-size: 0.78rem; font-weight: 700; cursor: pointer; transition: all 0.2s; font-family: inherit; text-align: center; }
+    .method-btn.selected { border-color: var(--primary); background: rgba(92,98,236,0.15); color: #fff; }
+    .space-y > * + * { margin-top: 16px; }
+    .pin-display { display: flex; justify-content: center; gap: 16px; margin: 24px 0; }
+    .pin-dot { width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.3); transition: all 0.15s; }
+    .pin-dot.filled { background: var(--primary); border-color: var(--primary); }
+    .keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 8px; }
+    .key { padding: 18px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04); color: #fff; font-size: 1.2rem; font-weight: 700; cursor: pointer; font-family: inherit; transition: all 0.15s; }
+    .key:hover { background: rgba(255,255,255,0.1); }
+    .key:active { transform: scale(0.95); }
+    .key.backspace { color: rgba(255,255,255,0.5); font-size: 1rem; }
+
+    /* Steps indicator */
+    .steps { display: flex; gap: 8px; justify-content: center; margin-bottom: 32px; }
+    .step-dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.15); transition: all 0.2s; }
+    .step-dot.active { background: var(--primary); width: 24px; border-radius: 4px; }
+    .step-dot.done { background: var(--success); }
+
+    /* Typography */
+    .h1 { font-size: 2rem; font-weight: 900; }
+    .h2 { font-size: 1.5rem; font-weight: 800; }
+    .h3 { font-size: 1.1rem; font-weight: 700; }
+    .small { font-size: 0.8rem; color: rgba(255,255,255,0.45); }
+    .text-primary { color: var(--primary); }
+    .text-success { color: var(--success); }
+    .text-error { color: var(--error); }
+    .link { color: var(--primary); cursor: pointer; font-weight: 700; }
+    .link:hover { text-decoration: underline; }
+    .mt-4 { margin-top: 16px; } .mt-6 { margin-top: 24px; } .mt-8 { margin-top: 32px; }
+    .mb-2 { margin-bottom: 8px; } .mb-4 { margin-bottom: 16px; } .mb-6 { margin-bottom: 24px; }
+    .flex { display: flex; } .items-center { align-items: center; } .justify-between { justify-content: space-between; }
+    .gap-2 { gap: 8px; } .gap-3 { gap: 12px; } .gap-4 { gap: 16px; }
+    .font-mono { font-family: monospace; }
+    .opacity-50 { opacity: 0.5; }
+    .divider { height: 1px; background: rgba(255,255,255,0.07); margin: 20px 0; }
+
+    /* Feature icons grid */
+    .feature-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+    @media (max-width: 600px) { .feature-grid { grid-template-columns: repeat(2, 1fr); } }
+    .feature-item { padding: 18px; border-radius: 16px; text-align: center; cursor: pointer; transition: all 0.2s; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.03); }
+    .feature-item:hover { background: rgba(255,255,255,0.07); transform: translateY(-2px); }
+    .feature-icon { font-size: 1.6rem; margin-bottom: 8px; }
+    .feature-label { font-size: 0.75rem; font-weight: 700; color: rgba(255,255,255,0.7); }
+
+    /* Spinner */
+    .spinner { width: 22px; height: 22px; border: 3px solid rgba(255,255,255,0.2); border-top-color: #fff; border-radius: 50%; animation: spin 0.7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+<div id="toast-container"></div>
+<div id="root"><div style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:#fff;font-family:sans-serif;">Loading NeoBank...</div></div>
+
+<script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<script type="text/babel" data-type="module">
+const { useState, useEffect, useRef, createContext, useContext, useCallback } = React;
+
+// ── Toast System ─────────────────────────────────────────────────────────────
+function showToast(msg, type = 'info') {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => el.remove(), 4000);
+}
+
+// ── Storage helpers ───────────────────────────────────────────────────────────
+const save = (k, v) => localStorage.setItem('neo_' + k, JSON.stringify(v));
+const load = (k, d) => { try { const v = localStorage.getItem('neo_' + k); return v ? JSON.parse(v) : d; } catch { return d; } };
+const clearAll = () => ['user','accounts','transactions'].forEach(k => localStorage.removeItem('neo_' + k));
+
+function genAccNum() { return String(Math.floor(1e9 + Math.random() * 9e9)); }
+
+// ── App Root ──────────────────────────────────────────────────────────────────
+function App() {
+  const [user, _setUser] = useState(() => load('user', null));
+  const [accounts, _setAccounts] = useState(() => load('accounts', []));
+  const [transactions, _setTransactions] = useState(() => load('transactions', []));
+
+  const setUser = v => { _setUser(v); save('user', v); };
+  const setAccounts = v => { const next = typeof v === 'function' ? v(accounts) : v; _setAccounts(next); save('accounts', next); };
+  const setTransactions = v => { const next = typeof v === 'function' ? v(transactions) : v; _setTransactions(next); save('transactions', next); };
+
+  // View: 'login' | 'register' | 'otp' | 'pin' | 'dashboard'
+  const [view, setView] = useState(() => {
+    const u = load('user', null);
+    if (u && u.verified && u.pin) return 'dashboard';
+    if (u && u.verified) return 'pin';
+    if (u) return 'otp';
+    return 'login';
+  });
+
+  const register = (data) => {
+    setUser({ ...data, verified: false, pin: null, id: Date.now().toString() });
+    showToast('Account created! OTP: 4821', 'success');
+    setView('otp');
+  };
+
+  const verifyOtp = (otp) => {
+    if (otp === '4821') {
+      setUser({ ...user, verified: true });
+      showToast('Email verified! ✓', 'success');
+      setView('pin');
+    } else {
+      showToast('Invalid OTP. Use 4821', 'error');
+    }
+  };
+
+  const setPin = (pin) => {
+    const acc = { id: Date.now().toString(), number: genAccNum(), type: 'Savings', balance: 1000, created: new Date().toISOString() };
+    setUser({ ...user, pin });
+    setAccounts([acc]);
+    showToast('PIN set! ₹1,000 welcome bonus added 🎉', 'success');
+    setView('dashboard');
+  };
+
+  const login = (email, password) => {
+    const u = load('user', null);
+    if (u && u.email === email && u.password === password) {
+      _setUser(u);
+      showToast('Welcome back, ' + u.name + '!', 'success');
+      setView('dashboard');
+    } else {
+      showToast('Invalid credentials', 'error');
+    }
+  };
+
+  const logout = () => {
+    clearAll(); _setUser(null); _setAccounts([]); _setTransactions([]);
+    showToast('Logged out successfully');
+    setView('login');
+  };
+
+  const addFunds = (accId, amount, desc, method) => {
+    const tx = { id: Date.now().toString(), accId, amount, type: 'credit', desc, method, date: new Date().toISOString() };
+    setTransactions(prev => [tx, ...prev]);
+    setAccounts(prev => prev.map(a => a.id === accId ? { ...a, balance: a.balance + amount } : a));
+    showToast(`+₹${amount.toLocaleString()} added via ${method}`, 'success');
+  };
+
+  const withdraw = (accId, amount, desc, method, pin) => {
+    const u = load('user', null) || user;
+    if (u.pin !== pin) { showToast('Incorrect PIN! Transaction declined.', 'error'); return false; }
+    const acc = accounts.find(a => a.id === accId);
+    if (!acc || acc.balance < amount) { showToast('Insufficient balance', 'error'); return false; }
+    const tx = { id: Date.now().toString(), accId, amount, type: 'debit', desc, method, date: new Date().toISOString() };
+    setTransactions(prev => [tx, ...prev]);
+    setAccounts(prev => prev.map(a => a.id === accId ? { ...a, balance: a.balance - amount } : a));
+    showToast(`-₹${amount.toLocaleString()} withdrawn`, 'success');
+    return true;
+  };
+
+  const addAccount = (type) => {
+    const acc = { id: Date.now().toString(), number: genAccNum(), type, balance: 0, created: new Date().toISOString() };
+    setAccounts(prev => [...prev, acc]);
+    showToast(`${type} account created!`, 'success');
+  };
+
+  const ctx = { user, accounts, transactions, setUser, register, verifyOtp, setPin, login, logout, addFunds, withdraw, addAccount };
+
+  return (
+    <div>
+      {view === 'login' && <LoginPage ctx={ctx} setView={setView} />}
+      {view === 'register' && <RegisterPage ctx={ctx} setView={setView} />}
+      {view === 'otp' && <OtpPage ctx={ctx} setView={setView} />}
+      {view === 'pin' && <PinPage ctx={ctx} setView={setView} />}
+      {view === 'dashboard' && <DashboardPage ctx={ctx} />}
+    </div>
+  );
+}
+
+// ── Login Page ────────────────────────────────────────────────────────────────
+function LoginPage({ ctx, setView }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  return (
+    <div className="center-page">
+      <div className="glass card page-enter" style={{width:'100%',maxWidth:'440px'}}>
+        <div style={{textAlign:'center',marginBottom:'32px'}}>
+          <div style={{fontSize:'3rem',marginBottom:'12px'}}>🏦</div>
+          <div className="h1" style={{marginBottom:'6px'}}>NeoBank</div>
+          <div className="small">Secure, Swift, Seamless Banking</div>
+        </div>
+        <div className="space-y">
+          <div>
+            <label>Email Address</label>
+            <input className="input" type="email" placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} />
+          </div>
+          <div>
+            <label>Password</label>
+            <input className="input" type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && ctx.login(email, password)} />
+          </div>
+          <button className="btn btn-primary w-full" onClick={() => ctx.login(email, password)}>Login →</button>
+        </div>
+        <div className="divider" />
+        <div style={{textAlign:'center'}} className="small">
+          No account? <span className="link" onClick={() => setView('register')}>Open NeoAccount</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Register Page ─────────────────────────────────────────────────────────────
+function RegisterPage({ ctx, setView }) {
+  const [form, setForm] = useState({ name:'', email:'', phone:'', password:'' });
+  const up = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const submit = () => {
+    if (!form.name || !form.email || !form.password) { showToast('Please fill all fields', 'error'); return; }
+    ctx.register(form);
+  };
+  return (
+    <div className="center-page">
+      <div className="glass card page-enter" style={{width:'100%',maxWidth:'480px'}}>
+        <div style={{display:'flex',alignItems:'center',gap:'16px',marginBottom:'28px'}}>
+          <button className="btn btn-ghost" style={{padding:'10px 14px',fontSize:'0.85rem'}} onClick={() => setView('login')}>← Back</button>
+          <div>
+            <div className="h2">Open NeoAccount</div>
+            <div className="small" style={{marginTop:'4px'}}>Takes less than 2 minutes</div>
+          </div>
+        </div>
+        <div className="steps">
+          <div className="step-dot active" />
+          <div className="step-dot" />
+          <div className="step-dot" />
+        </div>
+        <div className="space-y">
+          <div>
+            <label>Full Name</label>
+            <input className="input" placeholder="John Doe" value={form.name} onChange={e => up('name', e.target.value)} />
+          </div>
+          <div>
+            <label>Email Address</label>
+            <input className="input" type="email" placeholder="sriharkonda553@gmail.com" value={form.email} onChange={e => up('email', e.target.value)} />
+          </div>
+          <div>
+            <label>Phone Number</label>
+            <input className="input" type="tel" placeholder="+91 98765 43210" value={form.phone} onChange={e => up('phone', e.target.value)} />
+          </div>
+          <div>
+            <label>Create Password</label>
+            <input className="input" type="password" placeholder="Min 6 characters" value={form.password} onChange={e => up('password', e.target.value)} />
+          </div>
+          <button className="btn btn-primary w-full" onClick={submit}>Continue to Verification →</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── OTP Page ──────────────────────────────────────────────────────────────────
+function OtpPage({ ctx, setView }) {
+  const [otp, setOtp] = useState('');
+  return (
+    <div className="center-page">
+      <div className="glass card page-enter" style={{width:'100%',maxWidth:'420px',textAlign:'center'}}>
+        <div className="steps">
+          <div className="step-dot done" />
+          <div className="step-dot active" />
+          <div className="step-dot" />
+        </div>
+        <div style={{fontSize:'3rem',marginBottom:'16px'}}>📧</div>
+        <div className="h2" style={{marginBottom:'8px'}}>Verify Your Email</div>
+        <div className="small" style={{marginBottom:'8px'}}>We've sent a 4-digit code to</div>
+        <div style={{fontWeight:700,marginBottom:'28px',color:'#fff'}}>{ctx.user?.email || 'sriharkonda553@gmail.com'}</div>
+
+        <div style={{background:'rgba(64,196,255,0.08)',border:'1px solid rgba(64,196,255,0.2)',borderRadius:'12px',padding:'12px',marginBottom:'24px',fontSize:'0.85rem',color:'#40c4ff'}}>
+          🔐 Your OTP is: <strong>4821</strong>
+        </div>
+
+        <input className="input input-center" maxLength={4} placeholder="- - - -" value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g,''))}
+          onKeyDown={e => e.key === 'Enter' && ctx.verifyOtp(otp)} />
+        <button className="btn btn-primary w-full mt-6" onClick={() => ctx.verifyOtp(otp)}>Verify & Continue →</button>
+        <div className="small mt-4"><span className="link" onClick={() => showToast('OTP is 4821', 'info')}>Resend OTP</span></div>
+      </div>
+    </div>
+  );
+}
+
+// ── PIN Setup Page ─────────────────────────────────────────────────────────────
+function PinPage({ ctx, setView }) {
+  const [pin, setPin] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [stage, setStage] = useState('set'); // set | confirm
+  const current = stage === 'set' ? pin : confirm;
+
+  const press = (key) => {
+    if (key === 'del') {
+      if (stage === 'set') setPin(p => p.slice(0,-1));
+      else setConfirm(p => p.slice(0,-1));
+      return;
+    }
+    if (current.length >= 4) return;
+    if (stage === 'set') {
+      const next = pin + key;
+      setPin(next);
+      if (next.length === 4) setTimeout(() => setStage('confirm'), 300);
+    } else {
+      const next = confirm + key;
+      setConfirm(next);
+      if (next.length === 4) setTimeout(() => {
+        if (pin === next) { ctx.setPin(pin); }
+        else { showToast('PINs do not match!', 'error'); setPin(''); setConfirm(''); setStage('set'); }
+      }, 300);
+    }
+  };
+
+  const dots = (val) => [0,1,2,3].map(i => <div key={i} className={`pin-dot ${val.length > i ? 'filled' : ''}`} />);
+  const keys = ['1','2','3','4','5','6','7','8','9','','0','del'];
+
+  return (
+    <div className="center-page">
+      <div className="glass card page-enter" style={{width:'100%',maxWidth:'380px',textAlign:'center'}}>
+        <div className="steps">
+          <div className="step-dot done" />
+          <div className="step-dot done" />
+          <div className="step-dot active" />
+        </div>
+        <div style={{fontSize:'2.5rem',marginBottom:'12px'}}>🔐</div>
+        <div className="h2" style={{marginBottom:'6px'}}>{stage === 'set' ? 'Set Security PIN' : 'Confirm PIN'}</div>
+        <div className="small" style={{marginBottom:'4px'}}>{stage === 'set' ? 'Choose a 4-digit PIN for all transactions' : 'Enter your PIN again to confirm'}</div>
+        <div className="pin-display">{dots(current)}</div>
+        <div className="keypad">
+          {keys.map((k, i) => k === '' ? <div key={i} /> :
+            <button key={i} className={`key ${k==='del'?'backspace':''}`} onClick={() => press(k)}>
+              {k === 'del' ? '⌫' : k}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Dashboard ──────────────────────────────────────────────────────────────────
+function DashboardPage({ ctx }) {
+  const [activeAcc, setActiveAcc] = useState(0);
+  const [modal, setModal] = useState(null); // null | 'add' | 'withdraw'
+  const acc = ctx.accounts[activeAcc] || ctx.accounts[0];
+
+  const accountTypes = ['Savings', 'Current', 'Fixed Deposit', 'NRI'];
+  const nextType = accountTypes[(ctx.accounts.length) % accountTypes.length];
+
+  return (
+    <div className="container">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <div className="h2">NeoBank <span style={{fontSize:'0.65rem',background:'rgba(92,98,236,0.2)',color:'var(--primary)',padding:'3px 8px',borderRadius:'6px',verticalAlign:'middle',fontWeight:700,letterSpacing:'0.08em'}}>SIMULATOR</span></div>
+          <div className="small" style={{marginTop:'3px'}}>Welcome back, <strong style={{color:'#fff'}}>{ctx.user?.name}</strong></div>
+        </div>
+        <div className="flex gap-3">
+          <button className="btn btn-ghost" style={{padding:'10px 14px',fontSize:'1.2rem'}} title="Notifications">🔔</button>
+          <button className="btn btn-danger" onClick={ctx.logout}>Logout</button>
+        </div>
+      </div>
+
+      <div className="dash-grid">
+        {/* LEFT */}
+        <div className="left-stack">
+          {/* Balance Card */}
+          {acc && (
+            <div className="glass balance-card">
+              <div className="balance-label">Total Balance</div>
+              <div className="balance-amount">₹{acc.balance.toLocaleString('en-IN')}<span style={{fontSize:'1.4rem',color:'var(--primary)',fontWeight:700}}>.00</span></div>
+
+              <div className="flex gap-4 mt-4" style={{flexWrap:'wrap'}}>
+                <div>
+                  <div style={{fontSize:'0.65rem',color:'rgba(255,255,255,0.35)',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:'3px'}}>Account No.</div>
+                  <div className="font-mono" style={{fontSize:'1rem',letterSpacing:'0.15em'}}>
+                    {acc.number.match(/.{1,4}/g).join(' ')}
+                  </div>
+                </div>
+                <div style={{width:'1px',background:'rgba(255,255,255,0.1)'}} />
+                <div>
+                  <div style={{fontSize:'0.65rem',color:'rgba(255,255,255,0.35)',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:'3px'}}>Type</div>
+                  <div style={{color:'var(--primary)',fontWeight:700}}>{acc.type}</div>
+                </div>
+              </div>
+
+              {/* Account row */}
+              <div className="account-row mt-6">
+                {ctx.accounts.map((a, i) => (
+                  <div key={a.id} className={`account-chip ${i === activeAcc ? 'active' : ''}`} onClick={() => setActiveAcc(i)}>
+                    <div style={{fontSize:'0.65rem',color:'rgba(255,255,255,0.4)',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:'4px'}}>{a.type}</div>
+                    <div className="font-mono" style={{fontSize:'0.8rem',fontWeight:700,marginBottom:'6px'}}>...{a.number.slice(-4)}</div>
+                    <div style={{fontWeight:800}}>₹{a.balance.toLocaleString('en-IN')}</div>
+                  </div>
+                ))}
+                <button className="account-chip-add" title={`Add ${nextType} Account`} onClick={() => ctx.addAccount(nextType)}>＋</button>
+              </div>
+
+              <div className="btn-row mt-6">
+                <button className="btn btn-primary" onClick={() => setModal('add')}>＋ Add Funds</button>
+                <button className="btn btn-ghost" onClick={() => setModal('withdraw')}>↑ Withdraw</button>
+              </div>
+            </div>
+          )}
+
+          {/* Card Visuals */}
+          <div className="card-grid">
+            <div className="card-visual card-visa glass">
+              <div className="flex justify-between items-center">
+                <div style={{fontSize:'1.4rem'}}>💳</div>
+                <div className="card-badge" style={{color:'#60a5fa'}}>VISA DEBIT</div>
+              </div>
+              <div className="card-number">4532 9012 8841 0021</div>
+              <div className="flex justify-between items-center">
+                <div>
+                  <div className="card-label">Card Holder</div>
+                  <div style={{fontWeight:700,fontSize:'0.85rem',textTransform:'uppercase',marginTop:'2px'}}>{ctx.user?.name}</div>
+                </div>
+                <div style={{textAlign:'right'}}>
+                  <div className="card-label">Expires</div>
+                  <div style={{fontWeight:700,fontSize:'0.85rem',marginTop:'2px'}}>12/28</div>
+                </div>
+              </div>
+            </div>
+            <div className="card-visual card-metal glass">
+              <div style={{fontSize:'1.5rem',marginBottom:'12px'}}>⬛</div>
+              <div className="h3" style={{marginBottom:'6px'}}>Virtual Metal Card</div>
+              <div className="small">Freeze, unfreeze, and manage spending limits instantly.</div>
+              <div className="link mt-4 small">Manage →</div>
+            </div>
+          </div>
+
+          {/* Feature Grid */}
+          <div className="feature-grid">
+            {[
+              {icon:'📱',label:'UPI Sync'},
+              {icon:'💰',label:'Savings Goals'},
+              {icon:'📊',label:'Statements'},
+              {icon:'🛡️',label:'Insurance'},
+            ].map(f => (
+              <div key={f.label} className="feature-item" onClick={() => showToast(`${f.label} coming soon!`)}>
+                <div className="feature-icon">{f.icon}</div>
+                <div className="feature-label">{f.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* RIGHT: Transaction History */}
+        <div className="glass history-card">
+          <div className="history-header flex justify-between items-center">
+            <div className="h3">📋 Activity</div>
+            <div className="small link">See All</div>
+          </div>
+          <div className="history-body">
+            {ctx.transactions.length === 0 ? (
+              <div className="empty-state">
+                <div style={{fontSize:'2.5rem',marginBottom:'12px'}}>💸</div>
+                <div>No transactions yet</div>
+                <div style={{marginTop:'6px',fontSize:'0.75rem'}}>Add funds to get started</div>
+              </div>
+            ) : ctx.transactions.map(t => (
+              <div key={t.id} className={`tx-row ${t.type === 'credit' ? 'tx-credit' : 'tx-debit'}`}>
+                <div className="flex items-center gap-3">
+                  <div className="tx-icon">{t.type === 'credit' ? '↙️' : '↗️'}</div>
+                  <div>
+                    <div className="tx-desc">{t.desc}</div>
+                    <div className="tx-meta">{t.method} • {new Date(t.date).toLocaleDateString('en-IN')}</div>
+                  </div>
+                </div>
+                <div className={`tx-amount ${t.type === 'credit' ? 'credit' : 'debit'}`}>
+                  {t.type === 'credit' ? '+' : '-'}₹{t.amount.toLocaleString('en-IN')}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Modals */}
+      {modal === 'add' && <AddFundsModal acc={acc} onClose={() => setModal(null)} onConfirm={(amt, desc, method) => { ctx.addFunds(acc.id, amt, desc, method); setModal(null); }} />}
+      {modal === 'withdraw' && <WithdrawModal acc={acc} onClose={() => setModal(null)} onConfirm={(amt, desc, method, pin) => { if (ctx.withdraw(acc.id, amt, desc, method, pin)) setModal(null); }} />}
+    </div>
+  );
+}
+
+// ── Add Funds Modal ───────────────────────────────────────────────────────────
+function AddFundsModal({ onClose, acc, onConfirm }) {
+  const [amount, setAmount] = useState('');
+  const [desc, setDesc] = useState('');
+  const [method, setMethod] = useState('UPI');
+  const methods = ['Fake Card', 'UPI', 'Net Banking'];
+  const [loading, setLoading] = useState(false);
+
+  const submit = () => {
+    const amt = parseFloat(amount);
+    if (!amt || amt <= 0) { showToast('Enter a valid amount', 'error'); return; }
+    setLoading(true);
+    setTimeout(() => { onConfirm(amt, desc || 'Deposit', method); setLoading(false); }, 1200);
+  };
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="glass modal">
+        <div className="modal-header">
+          <div className="h3">💰 Add Funds</div>
+          <button className="close-btn" onClick={onClose}>✕</button>
+        </div>
+        <div>
+          <label>Payment Method</label>
+          <div className="method-grid">
+            {methods.map(m => <button key={m} className={`method-btn ${method === m ? 'selected' : ''}`} onClick={() => setMethod(m)}>{m}</button>)}
+          </div>
+          <label>Amount (₹)</label>
+          <input className="input" type="number" placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)} style={{marginBottom:'16px'}} />
+          <label>Description (optional)</label>
+          <input className="input" placeholder="e.g. Salary, Rent received" value={desc} onChange={e => setDesc(e.target.value)} style={{marginBottom:'24px'}} />
+          <div className="flex gap-3">
+            <button className="btn btn-ghost" style={{flex:'1'}} onClick={onClose}>Cancel</button>
+            <button className="btn btn-primary" style={{flex:'2'}} onClick={submit} disabled={loading}>
+              {loading ? <div className="spinner" /> : 'Confirm Deposit'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Withdraw Modal ────────────────────────────────────────────────────────────
+function WithdrawModal({ onClose, acc, onConfirm }) {
+  const [step, setStep] = useState(1);
+  const [amount, setAmount] = useState('');
+  const [desc, setDesc] = useState('');
+  const [method, setMethod] = useState('Bank Transfer');
+  const [pin, setPin] = useState('');
+  const [loading, setLoading] = useState(false);
+  const methods = ['Bank Transfer', 'ATM Cash', 'UPI Pay'];
+
+  const toPin = () => {
+    const amt = parseFloat(amount);
+    if (!amt || amt <= 0) { showToast('Enter a valid amount', 'error'); return; }
+    if (acc && amt > acc.balance) { showToast('Insufficient balance!', 'error'); return; }
+    setStep(2);
+  };
+
+  const submit = () => {
+    if (pin.length !== 4) { showToast('Enter 4-digit PIN', 'error'); return; }
+    setLoading(true);
+    setTimeout(() => { onConfirm(parseFloat(amount), desc || 'Withdrawal', method, pin); setLoading(false); }, 1200);
+  };
+
+  const dots = [0,1,2,3].map(i => <div key={i} className={`pin-dot ${pin.length > i ? 'filled' : ''}`} />);
+  const keys = ['1','2','3','4','5','6','7','8','9','','0','del'];
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="glass modal">
+        <div className="modal-header">
+          <div className="h3">{step === 1 ? '↑ Withdraw' : '🔐 Confirm PIN'}</div>
+          <button className="close-btn" onClick={onClose}>✕</button>
+        </div>
+
+        {step === 1 ? (
+          <div>
+            <label>Withdrawal Method</label>
+            <div className="method-grid">
+              {methods.map(m => <button key={m} className={`method-btn ${method === m ? 'selected' : ''}`} onClick={() => setMethod(m)}>{m}</button>)}
+            </div>
+            <label>Amount (₹)</label>
+            <input className="input" type="number" placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)} style={{marginBottom:'8px'}} />
+            {acc && <div className="small" style={{marginBottom:'16px'}}>Available: ₹{acc.balance.toLocaleString('en-IN')}</div>}
+            <label>Description (optional)</label>
+            <input className="input" placeholder="e.g. Rent, Bills" value={desc} onChange={e => setDesc(e.target.value)} style={{marginBottom:'24px'}} />
+            <div className="flex gap-3">
+              <button className="btn btn-ghost" style={{flex:'1'}} onClick={onClose}>Cancel</button>
+              <button className="btn btn-primary" style={{flex:'2'}} onClick={toPin}>Enter PIN →</button>
+            </div>
+          </div>
+        ) : (
+          <div style={{textAlign:'center'}}>
+            <div className="small" style={{marginBottom:'6px'}}>Authorising withdrawal of</div>
+            <div style={{fontSize:'2rem',fontWeight:900,marginBottom:'20px'}}>₹{parseFloat(amount).toLocaleString('en-IN')}</div>
+            <div className="pin-display">{dots}</div>
+            <div className="keypad mt-4">
+              {keys.map((k, i) => k === '' ? <div key={i} /> :
+                <button key={i} className={`key ${k==='del'?'backspace':''}`}
+                  onClick={() => k === 'del' ? setPin(p => p.slice(0,-1)) : pin.length < 4 && setPin(p => p + k)}>
+                  {k === 'del' ? '⌫' : k}
+                </button>
+              )}
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button className="btn btn-ghost" style={{flex:'1'}} onClick={() => setStep(1)}>Back</button>
+              <button className="btn btn-primary" style={{flex:'2'}} onClick={submit} disabled={loading || pin.length < 4}>
+                {loading ? <div className="spinner" /> : 'Verify & Pay'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Mount ─────────────────────────────────────────────────────────────────────
+const container = document.getElementById('root');
+const root = ReactDOM.createRoot(container);
+root.render(<App />);
+</script>
+</body>
+</html>
