@@ -213,14 +213,135 @@ const AuthScreen = ({ setView }) => {
   );
 };
 
+// Helper function to send OTP email (used by both Register and OTP Resend)
+const sendOtpEmail = (userObj, emailConfig, addNotification) => {
+  const useRealEmail = window.emailjs && emailConfig?.serviceId !== 'YOUR_SERVICE_ID' && emailConfig?.serviceId;
+
+  // LOG OTP TO CONSOLE AS FALLBACK
+  console.log("=== NEOBANK SECURITY CODE ===");
+  console.log("Target Email:", userObj.email);
+  console.log("Verification Code:", userObj.expectedOtp);
+  console.log("=============================");
+
+  if (useRealEmail) {
+    const templateParams = {
+      to_email: userObj.email,
+      to_name: userObj.name,
+      otp_code: userObj.expectedOtp
+    };
+
+    addNotification('Sending verification code via EmailJS...', 'info');
+
+    return window.emailjs.send(
+      emailConfig.serviceId,
+      emailConfig.templateId,
+      templateParams
+    )
+    .then(() => {
+      addNotification('✅ OTP sent successfully to ' + userObj.email, 'success');
+    })
+    .catch((err) => {
+      console.error('EmailJS Error:', err);
+      addNotification('EmailJS failed. Check console for OTP code.', 'error');
+    });
+  } else {
+    // Send OTP via Node.js backend
+    addNotification('Sending OTP to ' + userObj.email + '...', 'info');
+    return fetch('http://localhost:5000/send-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: userObj.email, name: userObj.name, expectedOtp: userObj.expectedOtp })
+    })
+    .then(res => {
+      if (!res.ok) throw new Error('Backend error: ' + res.status);
+      return res.json();
+    })
+    .then(() => {
+      addNotification('✅ OTP sent to ' + userObj.email, 'success');
+    })
+    .catch(err => {
+      console.error('Email Error:', err);
+      addNotification('Email server unreachable. OTP is in browser console (F12).', 'error');
+    });
+  }
+};
+
 const RegisterScreen = ({ setView }) => {
   const { register, addNotification, emailConfig } = useBank();
-  const [formData, setFormData] = useState({ name: '', email: '', password: '', phone: '' });
+  const [formData, setFormData] = useState({ name: '', email: '', password: '', phone: '', dob: '' });
+  const [phoneError, setPhoneError] = useState('');
+  const [dobError, setDobError] = useState('');
+
+  // Phone number handler: only allow digits, max 10, must start with 6/7/8/9
+  const handlePhoneChange = (e) => {
+    const value = e.target.value.replace(/\D/g, '').slice(0, 10);
+    setFormData({...formData, phone: value});
+
+    if (value.length > 0 && !/^[6-9]/.test(value)) {
+      setPhoneError('Mobile number must start with 6, 7, 8, or 9');
+    } else if (value.length > 0 && value.length < 10) {
+      setPhoneError(`Enter ${10 - value.length} more digit(s)`);
+    } else {
+      setPhoneError('');
+    }
+  };
+
+  // Date of birth handler: validate 18+ age
+  const handleDobChange = (e) => {
+    const value = e.target.value;
+    setFormData({...formData, dob: value});
+
+    if (value) {
+      const birthDate = new Date(value);
+      const today = new Date();
+      let age = today.getFullYear() - birthDate.getFullYear();
+      const monthDiff = today.getMonth() - birthDate.getMonth();
+      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+      }
+      if (age < 18) {
+        setDobError('You must be at least 18 years old to open an account');
+      } else if (age > 120) {
+        setDobError('Please enter a valid date of birth');
+      } else {
+        setDobError('');
+      }
+    } else {
+      setDobError('');
+    }
+  };
+
+  // Calculate max date (18 years ago from today) for the date picker
+  const getMaxDobDate = () => {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() - 18);
+    return d.toISOString().split('T')[0];
+  };
 
   const handleRegister = async (e) => {
     e.preventDefault();
-    if (!formData.name || !formData.email || !formData.phone || !formData.password) {
+    if (!formData.name || !formData.email || !formData.phone || !formData.password || !formData.dob) {
       addNotification('Please fill all required fields', 'error');
+      return;
+    }
+
+    // Mobile number validation: exactly 10 digits starting with 6/7/8/9
+    const phoneRegex = /^[6-9]\d{9}$/;
+    if (!phoneRegex.test(formData.phone)) {
+      addNotification('Mobile number must be 10 digits and start with 6, 7, 8, or 9', 'error');
+      return;
+    }
+
+    // Date of birth: must be 18+
+    const birthDate = new Date(formData.dob);
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+    if (age < 18) {
+      addNotification('You must be at least 18 years old to register', 'error');
       return;
     }
 
@@ -232,106 +353,10 @@ const RegisterScreen = ({ setView }) => {
     }
 
     const newUser = register(formData);
-    const useRealEmail = window.emailjs && emailConfig?.serviceId !== 'YOUR_SERVICE_ID' && emailConfig?.serviceId;
     
-    // Attempt EmailJS first (if configured), otherwise fallback to SMTP.js using the provided credentials
-    if (useRealEmail) {
-      const templateParams = {
-        to_email: newUser.email,
-        to_name: newUser.name,
-        otp_code: newUser.expectedOtp
-      };
-
-      addNotification('Attempting to transmit verification code via EmailJS...', 'info');
-
-      window.emailjs.send(
-        emailConfig.serviceId,
-        emailConfig.templateId,
-        templateParams
-      )
-      .then(() => {
-        addNotification('OTP sent successfully to ' + newUser.email, 'success');
-        setView('otp');
-      })
-      .catch((err) => {
-        console.error('EmailJS Error:', err);
-        addNotification('Email delivery delayed or failed.', 'error');
-        setView('otp');
-      });
-    } else {
-      // Direct Browser Email via SMTP.js (works on ALL devices including mobile)
-      addNotification('Sending verification code to ' + newUser.email + '...', 'info');
-      
-      const sendViaSmtp = () => {
-        return new Promise((resolve, reject) => {
-          if (!window.Email) {
-            reject(new Error('Email library not loaded'));
-            return;
-          }
-          
-          const emailBody = `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 30px; background: #f8fafc; border-radius: 12px;">
-              <div style="background: linear-gradient(135deg, #1d4ed8, #3b82f6); padding: 20px; border-radius: 8px; text-align: center; margin-bottom: 24px;">
-                <h1 style="color: white; margin: 0; font-size: 24px;">NeoBank</h1>
-                <p style="color: #bfdbfe; margin: 4px 0 0 0; font-size: 14px;">Secure Banking Platform</p>
-              </div>
-              <h2 style="color: #1e293b; text-align: center;">Email Verification</h2>
-              <p style="color: #475569;">Hi ${newUser.name.split(' ')[0]},</p>
-              <p style="color: #475569;">Your one-time verification code is:</p>
-              <div style="background: #1d4ed8; padding: 24px; border-radius: 8px; text-align: center; margin: 24px 0;">
-                <h1 style="font-size: 48px; letter-spacing: 16px; color: white; margin: 0; font-family: monospace;">${newUser.expectedOtp}</h1>
-              </div>
-              <p style="color: #64748b; font-size: 13px; text-align: center;">This code expires in 10 minutes. Do not share it with anyone.</p>
-              <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
-              <p style="color: #94a3b8; font-size: 12px; text-align: center;">NeoBank Secure &mdash; Sent automatically by the system</p>
-            </div>
-          `;
-
-          window.Email.send({
-            Host: 'smtp.gmail.com',
-            Username: 'bossremo665@gmail.com',
-            Password: 'gmksfowbjmacjsot',
-            To: newUser.email,
-            From: 'NeoBank Security <bossremo665@gmail.com>',
-            Subject: '🔐 NeoBank OTP: ' + newUser.expectedOtp,
-            Body: emailBody
-          }).then(msg => {
-            console.log('SMTP.js response:', msg);
-            if (msg === 'OK') resolve(msg);
-            else reject(new Error('SMTP response: ' + msg));
-          }).catch(reject);
-        });
-      };
-
-      // Wait up to 3 seconds for Email library to be ready
-      const waitForEmail = (attempts = 0) => {
-        if (window.Email) {
-          sendViaSmtp()
-            .then(() => {
-              addNotification('✅ OTP sent successfully to ' + newUser.email, 'success');
-              setView('otp');
-            })
-            .catch(err => {
-              console.error('SMTP Error:', err);
-              addNotification('OTP ready - check your email or use the code below.', 'info');
-              setView('otp');
-            });
-        } else if (attempts < 10) {
-          setTimeout(() => waitForEmail(attempts + 1), 300);
-        } else {
-          console.error('Email library not available');
-          addNotification('Proceeding to OTP screen.', 'info');
-          setView('otp');
-        }
-      };
-      waitForEmail();
-    }
-
-    // LOG OTP TO CONSOLE AS FALLBACK
-    console.log("=== NEOBANK SECURITY CODE ===");
-    console.log("Target Email:", newUser.email);
-    console.log("Verification Code:", newUser.expectedOtp);
-    console.log("=============================");
+    // Send OTP email
+    await sendOtpEmail(newUser, emailConfig, addNotification);
+    setView('otp');
   };
 
   return (
@@ -358,11 +383,25 @@ const RegisterScreen = ({ setView }) => {
             />
           </div>
           <div>
-            <label className="text-sm text-gray-400 ml-2 mb-1 block">Phone</label>
+            <label className="text-sm text-gray-400 ml-2 mb-1 block">Mobile Number</label>
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium">+91</span>
+              <input 
+                type="tel" className="input-field pl-12" placeholder="9876543210"
+                value={formData.phone} onChange={handlePhoneChange} required
+                maxLength={10}
+              />
+            </div>
+            {phoneError && <p className="text-red-400 text-xs mt-1 ml-2">{phoneError}</p>}
+          </div>
+          <div>
+            <label className="text-sm text-gray-400 ml-2 mb-1 block">Date of Birth</label>
             <input 
-              type="tel" className="input-field" placeholder="+91 98765 43210"
-              value={formData.phone} onChange={(e) => setFormData({...formData, phone: e.target.value})} required
+              type="date" className="input-field" 
+              value={formData.dob} onChange={handleDobChange} required
+              max={getMaxDobDate()}
             />
+            {dobError && <p className="text-red-400 text-xs mt-1 ml-2">{dobError}</p>}
           </div>
           <div className="md:col-span-2">
             <label className="text-sm text-gray-400 ml-2 mb-1 block">Password</label>
@@ -370,6 +409,7 @@ const RegisterScreen = ({ setView }) => {
               type="password" className="input-field" placeholder="Create a strong password"
               value={formData.password} onChange={(e) => setFormData({...formData, password: e.target.value})} required minLength={8}
             />
+            <p className="text-gray-600 text-xs mt-1 ml-2">Min 8 chars with letters, numbers, and special characters</p>
           </div>
           <div className="md:col-span-2 mt-4">
             <button type="submit" className="btn-primary w-full py-4 text-lg">Continue to Verification</button>
@@ -382,8 +422,18 @@ const RegisterScreen = ({ setView }) => {
 };
 
 const OtpScreen = ({ setView }) => {
-  const { user, setUser, addNotification, logout } = useBank();
+  const { user, setUser, addNotification, logout, emailConfig } = useBank();
   const [otp, setOtp] = useState('');
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [isSending, setIsSending] = useState(false);
+
+  // Resend cooldown timer
+  useEffect(() => {
+    if (resendCooldown > 0) {
+      const timer = setTimeout(() => setResendCooldown(resendCooldown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [resendCooldown]);
 
   const handleVerify = (e) => {
     e.preventDefault();
@@ -394,6 +444,26 @@ const OtpScreen = ({ setView }) => {
     } else {
       addNotification(`Invalid OTP. Please check your email.`, 'error');
     }
+  };
+
+  // Resend OTP handler - generates a new OTP and sends it
+  const handleResendOtp = async () => {
+    if (resendCooldown > 0 || isSending || !user) return;
+    
+    setIsSending(true);
+    // Generate a new OTP
+    const newOtp = Math.floor(1000 + Math.random() * 9000).toString();
+    const updatedUser = { ...user, expectedOtp: newOtp };
+    setUser(updatedUser);
+    
+    try {
+      await sendOtpEmail(updatedUser, emailConfig, addNotification);
+    } catch (err) {
+      console.error('Resend OTP Error:', err);
+    }
+    
+    setIsSending(false);
+    setResendCooldown(30); // 30 second cooldown
   };
 
   // Mask email for display
@@ -423,9 +493,30 @@ const OtpScreen = ({ setView }) => {
             onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
           />
           <button type="submit" className="btn-primary w-full py-4 text-lg">Verify & Continue</button>
-          <button type="button" onClick={() => { setUser({ ...user, isVerified: true }); setView('pin'); addNotification('Bypassed Email for Testing', 'info'); }} className="text-gray-500 hover:text-white text-xs underline mt-2">
-             [DEV] Skip Verification
-          </button>
+          
+          {/* Resend OTP Button */}
+          <div className="pt-2">
+            <p className="text-gray-500 text-xs mb-2">Didn't receive the code?</p>
+            <button 
+              type="button" 
+              onClick={handleResendOtp}
+              disabled={resendCooldown > 0 || isSending}
+              className={`text-sm font-semibold transition ${
+                resendCooldown > 0 || isSending
+                  ? 'text-gray-600 cursor-not-allowed' 
+                  : 'text-primary hover:text-white hover:underline'
+              }`}
+            >
+              {isSending ? 'Sending...' : resendCooldown > 0 ? `Resend OTP in ${resendCooldown}s` : 'Resend OTP'}
+            </button>
+          </div>
+
+          <div className="pt-2 border-t border-white/5">
+            <p className="text-gray-600 text-[10px] mb-2 uppercase tracking-wider font-bold">Can't receive email?</p>
+            <button type="button" onClick={() => { setUser({ ...user, isVerified: true }); setView('pin'); addNotification('Bypassed Email for Testing', 'info'); }} className="text-gray-500 hover:text-white text-xs underline">
+               [DEV] Skip Verification
+            </button>
+          </div>
         </form>
       </div>
     </div>
@@ -554,8 +645,15 @@ const AccountSelectionScreen = ({ setView }) => {
 const KycFormScreen = ({ setView }) => {
   const { user, setUser, createAccount, addNotification } = useBank();
   const [formData, setFormData] = useState({
-    panCard: '', dob: '', address: '', city: '', state: '', pincode: ''
+    panCard: '', dob: user?.dob || '', address: '', city: '', state: '', pincode: ''
   });
+
+  // Calculate max date (18 years ago from today) for the date picker
+  const getMaxDobDate = () => {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() - 18);
+    return d.toISOString().split('T')[0];
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -574,6 +672,19 @@ const KycFormScreen = ({ setView }) => {
       return;
     }
     
+    // Validate age 18+
+    const birthDate = new Date(formData.dob);
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+    if (age < 18) {
+      addNotification('You must be at least 18 years old to open a bank account', 'error');
+      return;
+    }
+
     // Complete KYC and create account
     const updatedUser = { ...user, ...formData, panCard: formData.panCard.toUpperCase(), isKycVerified: true };
     setUser(updatedUser);
@@ -604,7 +715,9 @@ const KycFormScreen = ({ setView }) => {
             <input 
               type="date" className="input-field"
               value={formData.dob} onChange={(e) => setFormData({...formData, dob: e.target.value})} required
+              max={getMaxDobDate()}
             />
+            <p className="text-gray-600 text-xs mt-1 ml-2">Must be 18 years or older</p>
           </div>
           <div className="md:col-span-2 mt-4">
             <label className="text-sm text-gray-400 ml-2 mb-1 block">Residential Address</label>
