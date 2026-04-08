@@ -5,23 +5,11 @@ import {
   History, CreditCard, Plus, ArrowUpRight, ArrowDownLeft, 
   LogOut, Bell, ChevronRight, X, Smartphone, Globe, Lock, Banknote,
   MapPin, Calendar, FileText, CheckCircle, Copy, IndianRupee, Briefcase, Coins,
-  Inbox, Reply
+  Inbox, Reply, Settings
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const App = () => {
-  useEffect(() => {
-    // Inject EmailJS script for real OTP emails
-    const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js';
-    script.async = true;
-    script.onload = () => {
-      // NOTE: Replace with your actual EmailJS Public Key
-      window.emailjs.init("YOUR_PUBLIC_KEY_HERE"); 
-    };
-    document.body.appendChild(script);
-  }, []);
-
   return (
     <BankProvider>
       <MainLayout />
@@ -30,8 +18,16 @@ const App = () => {
 };
 
 const MainLayout = () => {
-  const { user, notifications, accounts } = useBank();
-  const [view, setView] = useState('auth'); // auth, register, otp, pin, accountSelection, kycForm, accountCreated, dashboard
+  const { user, notifications, accounts, emailConfig, setEmailConfig } = useBank();
+  const [view, setView] = useState('auth'); 
+  const [showConfig, setShowConfig] = useState(false);
+
+  useEffect(() => {
+    // EmailJS is initialized via index.html script tag
+    if (window.emailjs && emailConfig?.publicKey && emailConfig.publicKey !== 'YOUR_PUBLIC_KEY_HERE') {
+      window.emailjs.init(emailConfig.publicKey); 
+    }
+  }, [emailConfig?.publicKey]);
 
   // Logic to determine view based on user state changes
   useEffect(() => {
@@ -132,6 +128,25 @@ const MainLayout = () => {
           )}
         </AnimatePresence>
       </main>
+
+      {/* Floating Config Button (Visible in Auth/Register/OTP) */}
+      {['auth', 'register', 'otp'].includes(view) && (
+        <button 
+          onClick={() => setShowConfig(true)}
+          className="fixed bottom-6 right-6 p-4 glass rounded-full hover:bg-white/10 transition shadow-2xl z-50 group"
+        >
+          <Settings size={20} className="text-gray-400 group-hover:rotate-90 group-hover:text-primary transition-all duration-500" />
+        </button>
+      )}
+
+      {/* Email Config Modal */}
+      {showConfig && (
+        <EmailConfigModal 
+           config={emailConfig} 
+           onSave={(newConfig) => { setEmailConfig(newConfig); setShowConfig(false); }}
+           onClose={() => setShowConfig(false)} 
+        />
+      )}
     </div>
   );
 };
@@ -199,53 +214,85 @@ const AuthScreen = ({ setView }) => {
 };
 
 const RegisterScreen = ({ setView }) => {
-  const { register, addNotification } = useBank();
+  const { register, addNotification, emailConfig } = useBank();
   const [formData, setFormData] = useState({ name: '', email: '', password: '', phone: '' });
+  const [otpToSimulate, setOtpToSimulate] = useState(null);
 
-  const handleRegister = (e) => {
+  const handleRegister = async (e) => {
     e.preventDefault();
     if (!formData.name || !formData.email || !formData.phone || !formData.password) {
       addNotification('Please fill all required fields', 'error');
       return;
     }
+
+    // Strong Password Validation: min 8 chars, 1 letter, 1 number, 1 special char
+    const passwordRegex = /^(?=.*[a-zA-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$/;
+    if (!passwordRegex.test(formData.password)) {
+      addNotification('Password must be 8+ chars with letters, numbers, and special characters (e.g. @, #, $)', 'error');
+      return;
+    }
+
     const newUser = register(formData);
+    const useRealEmail = window.emailjs && emailConfig?.serviceId !== 'YOUR_SERVICE_ID' && emailConfig?.serviceId;
     
-    // Dispatch Email Securely using the genuine local Node.js Backup Server
-    fetch('http://localhost:5000/send-otp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: newUser.email,
-        name: newUser.name,
-        expectedOtp: newUser.expectedOtp
+    // Attempt EmailJS first (if configured), otherwise fallback to the Node backend server
+    if (useRealEmail) {
+      const templateParams = {
+        to_email: newUser.email,
+        to_name: newUser.name,
+        otp_code: newUser.expectedOtp
+      };
+
+      addNotification('Attempting to transmit verification code...', 'info');
+
+      window.emailjs.send(
+        emailConfig.serviceId,
+        emailConfig.templateId,
+        templateParams
+      )
+      .then(() => {
+        addNotification('OTP sent successfully to ' + newUser.email, 'success');
+        setView('otp');
       })
-    })
-    .then(async (res) => {
-      const data = await res.json();
-      if (res.ok) {
-        addNotification('OTP sent to ' + newUser.email, 'success');
-        setView('otp');
-      } else {
-        addNotification('Failed to send email: ' + (data.error || 'Unknown error'), 'error');
-        // Still allow them to move forward if they want to use the console-logged OTP for testing
-        setView('otp');
+      .catch((err) => {
+        console.error('EmailJS Error:', err);
+        addNotification('EmailJS Error. Opening Simulation.', 'error');
+        setOtpToSimulate(newUser.expectedOtp);
+      });
+    } else {
+      // Backend Fallback (Works on mobile when using local IP!)
+      addNotification('Attempting to transmit verification code securely...', 'info');
+      try {
+         // Dynamically build URL to support mobile devices connecting to the desktop
+         const backendUrl = `${window.location.protocol}//${window.location.hostname}:5000/send-otp`;
+         const response = await fetch(backendUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+               email: newUser.email,
+               name: newUser.name,
+               expectedOtp: newUser.expectedOtp
+            })
+         });
+
+         if (response.ok) {
+            addNotification('OTP sent successfully to ' + newUser.email, 'success');
+            setView('otp');
+         } else {
+            throw new Error('Backend responded with an error. Is server.js running?');
+         }
+      } catch (err) {
+         console.error('Backend Error:', err);
+         addNotification('Email delivery failed. Opening securely in Simulation Mode.', 'error');
+         setOtpToSimulate(newUser.expectedOtp);
       }
-    })
-    .catch(err => {
-      console.log('Mail Backend Error:', err);
-      addNotification('Could not connect to Mail Server. Check if it is running.', 'error');
-      // Still move to OTP screen so they aren't stuck (they can see OTP in console)
-      setView('otp');
-    });
+    }
 
     // LOG OTP TO CONSOLE AS FALLBACK
     console.log("=== NEOBANK SECURITY CODE ===");
     console.log("Target Email:", newUser.email);
     console.log("Verification Code:", newUser.expectedOtp);
     console.log("=============================");
-
-    addNotification('Attempting to transmit verification code...', 'info');
-
   };
 
   return (
@@ -290,6 +337,14 @@ const RegisterScreen = ({ setView }) => {
           </div>
         </form>
       </div>
+
+      {/* Simulation Modal */}
+      {otpToSimulate && (
+         <SimulationModal 
+            otp={otpToSimulate} 
+            onClose={() => { setOtpToSimulate(null); setView('otp'); }} 
+         />
+      )}
     </div>
   );
 };
@@ -336,6 +391,9 @@ const OtpScreen = ({ setView }) => {
             onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
           />
           <button type="submit" className="btn-primary w-full py-4 text-lg">Verify & Continue</button>
+          <button type="button" onClick={() => { setUser({ ...user, isVerified: true }); setView('pin'); addNotification('Bypassed Email for Testing', 'info'); }} className="text-gray-500 hover:text-white text-xs underline mt-2">
+             [DEV] Skip Verification
+          </button>
         </form>
       </div>
     </div>
@@ -575,7 +633,6 @@ const KycFormScreen = ({ setView }) => {
               <span className="text-xs text-gray-400">I agree to the Terms & Conditions and authorize NeoBank to verify my identity.</span>
             </label>
           </div>
-
           <div className="md:col-span-2 mt-4">
             <button type="submit" className="btn-primary w-full py-4 text-lg">Verify KYC & Open Account</button>
           </div>
@@ -585,12 +642,20 @@ const KycFormScreen = ({ setView }) => {
   );
 };
 
-// --- ACCOUNT CREATED CONFIRMATION ---
+// --- ACCOUNT CREATED CONFIRMATION & CARD PIN ---
 
 const AccountCreatedScreen = ({ setView }) => {
-  const { user, accounts } = useBank();
+  const { user, accounts, setCardPin } = useBank();
+  const [pin, setPin] = useState('');
+  const [step, setStep] = useState(1); // 1: Card Display, 2: PIN Setup, 3: Success
   const [copied, setCopied] = useState(false);
-  const account = accounts[0];
+  const account = accounts[accounts.length - 1];
+
+  const handleSetPin = () => {
+    if (pin.length !== 4) return alert('PIN must be 4 digits');
+    setCardPin(account.id, pin);
+    setStep(3);
+  };
 
   const copyAccountNumber = () => {
     if (account?.accountNumber) {
@@ -600,106 +665,132 @@ const AccountCreatedScreen = ({ setView }) => {
     }
   };
 
+  if (!account) return <div className="text-center p-20 glass">Initializing Account...</div>;
+
   return (
-    <div className="flex flex-col items-center justify-center min-h-[80vh]">
-      <motion.div 
-        initial={{ scale: 0.8, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ type: 'spring', duration: 0.6 }}
-        className="glass p-10 w-full max-w-lg text-center"
-      >
-        {/* Success Icon */}
-        <motion.div 
-          initial={{ scale: 0 }}
-          animate={{ scale: 1 }}
-          transition={{ delay: 0.3, type: 'spring', stiffness: 200 }}
-          className="w-20 h-20 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-6"
-        >
-          <CheckCircle className="text-emerald-500" size={44} />
-        </motion.div>
+    <div className="flex flex-col items-center justify-center min-h-[80vh] py-8">
+      <div className="glass p-10 w-full max-w-lg text-center relative overflow-hidden">
+        <div className="absolute -top-20 -right-20 w-40 h-40 bg-emerald-500/10 blur-[60px] rounded-full"></div>
+        
+        {step === 1 && (
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+            <div className="w-16 h-16 bg-emerald-500/20 text-emerald-500 rounded-full flex items-center justify-center mx-auto shadow-xl">
+               <CheckCircle size={32} />
+            </div>
+            <h2 className="text-3xl font-bold">Account Ready!</h2>
+            <p className="text-gray-400 text-sm">Your {account.type} account has been created. We've issued your virtual debit card.</p>
+            
+            <VirtualCard card={account.cardDetails} name={user.name} />
 
-        <h2 className="text-3xl font-bold mb-2">Account Created!</h2>
-        <p className="text-gray-400 mb-8">Congratulations! Your NeoBank account is ready.</p>
+            <button onClick={() => setStep(2)} className="btn-primary w-full py-4 text-lg font-bold">Set Virtual PIN</button>
+          </motion.div>
+        )}
 
-        {/* Account Number Display */}
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5 }}
-          className="bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/30 rounded-2xl p-6 mb-6"
-        >
-          <p className="text-[10px] uppercase font-black text-gray-400 tracking-widest mb-2">Your Account Number</p>
-          <div className="flex items-center justify-center gap-3">
-            <p className="text-2xl md:text-3xl font-mono font-bold tracking-[0.15em]">
-              {account?.accountNumber.match(/.{1,4}/g)?.join(' ')}
-            </p>
-            <button 
-              onClick={copyAccountNumber}
-              className={`p-2 rounded-lg transition-all ${
-                copied ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/10 text-gray-400 hover:text-white hover:bg-white/20'
-              }`}
-            >
-              {copied ? <CheckCircle size={18} /> : <Copy size={18} />}
-            </button>
-          </div>
-          {copied && <p className="text-emerald-400 text-xs mt-2 font-bold">Copied to clipboard!</p>}
-        </motion.div>
+        {step === 2 && (
+          <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-6">
+             <div className="w-16 h-16 bg-primary/10 text-primary rounded-full flex items-center justify-center mx-auto">
+                <Key size={32} />
+             </div>
+             <h3 className="text-2xl font-bold">Activate Your Card</h3>
+             <p className="text-gray-400 text-sm px-8">Set a 4-digit PIN for your visa card. You will need this for all card-based transactions.</p>
+             
+             <div className="max-w-[180px] mx-auto">
+               <input 
+                 type="password" maxLength="4" className="input-field text-center text-4xl tracking-[0.6em]" 
+                 autoFocus placeholder="••••" value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
+               />
+             </div>
 
-        {/* Account Details Grid */}
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.7 }}
-          className="grid grid-cols-2 gap-4 text-left mb-8"
-        >
-          <div className="bg-white/5 rounded-xl p-4">
-            <p className="text-[10px] uppercase font-bold text-gray-500 mb-1">Account Holder</p>
-            <p className="text-sm font-bold">{user?.name}</p>
-          </div>
-          <div className="bg-white/5 rounded-xl p-4">
-            <p className="text-[10px] uppercase font-bold text-gray-500 mb-1">Account Type</p>
-            <p className="text-sm font-bold">{account?.type || 'Savings'}</p>
-          </div>
-          <div className="bg-white/5 rounded-xl p-4">
-            <p className="text-[10px] uppercase font-bold text-gray-500 mb-1">PAN Card</p>
-            <p className="text-sm font-bold font-mono">{user?.panCard || 'N/A'}</p>
-          </div>
-          <div className="bg-white/5 rounded-xl p-4">
-            <p className="text-[10px] uppercase font-bold text-gray-500 mb-1">IFSC Code</p>
-            <p className="text-sm font-bold font-mono">NEOB0001234</p>
-          </div>
-          <div className="bg-white/5 rounded-xl p-4">
-            <p className="text-[10px] uppercase font-bold text-gray-500 mb-1">Branch</p>
-            <p className="text-sm font-bold">{user?.city || 'Digital'} Branch</p>
-          </div>
-          <div className="bg-white/5 rounded-xl p-4">
-            <p className="text-[10px] uppercase font-bold text-gray-500 mb-1">Opening Balance</p>
-            <p className="text-sm font-bold text-emerald-400">₹1,000.00</p>
-          </div>
-        </motion.div>
+             <button onClick={handleSetPin} className="btn-primary w-full py-4 font-bold">Activate My Card Now</button>
+          </motion.div>
+        )}
 
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 1 }}
-        >
-          <button 
-            onClick={() => setView('dashboard')}
-            className="btn-primary w-full py-4 text-lg flex items-center justify-center gap-2"
-          >
-            Go to Dashboard <ChevronRight size={20} />
-          </button>
-          <p className="mt-4 text-xs text-gray-500">Your account has been credited with ₹1,000 demo funds to explore.</p>
-        </motion.div>
-      </motion.div>
+        {step === 3 && (
+          <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="space-y-8">
+             <div className="w-20 h-20 bg-emerald-500/20 text-emerald-500 rounded-full flex items-center justify-center mx-auto border border-emerald-500/30">
+               <CheckCircle size={40} />
+             </div>
+             <div>
+                <h3 className="text-2xl font-bold mb-2 tracking-tight">Setup Complete!</h3>
+                <p className="text-gray-400 text-sm">Your account and card are fully active. Welcome to NeoBank.</p>
+             </div>
+             <div className="p-4 bg-white/5 rounded-2xl border border-white/10 text-left">
+                <div className="flex justify-between items-center text-xs mb-3">
+                   <span className="text-gray-500 uppercase font-bold tracking-widest">Account ID</span>
+                   <div className="flex items-center gap-2">
+                      <span className="text-white font-mono font-bold">{account.accountNumber}</span>
+                      <button onClick={copyAccountNumber} className="text-primary hover:text-white transition">
+                        {copied ? <CheckCircle size={14} /> : <Copy size={14} />}
+                      </button>
+                   </div>
+                </div>
+                <div className="flex justify-between text-xs">
+                   <span className="text-gray-500 uppercase font-bold tracking-widest">Initial Balance</span>
+                   <span className="text-emerald-400 font-bold">₹1,000.00 Credits</span>
+                </div>
+             </div>
+             <button onClick={() => setView('dashboard')} className="btn-primary w-full py-4 text-lg flex items-center justify-center gap-2 font-black">
+               Open Dashboard <ChevronRight size={18} />
+             </button>
+          </motion.div>
+        )}
+      </div>
     </div>
+  );
+};
+
+const VirtualCard = ({ card, name, hideCvv = true }) => {
+  return (
+    <motion.div 
+      whileHover={{ scale: 1.02 }}
+      className="w-full h-48 rounded-[24px] bg-gradient-to-br from-[#1a1c2e] to-[#0f101a] p-6 shadow-2xl relative overflow-hidden border border-white/10"
+    >
+      <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 blur-[40px] rounded-full -mr-10 -mt-10"></div>
+      <div className="absolute bottom-0 left-0 w-24 h-24 bg-blue-500/5 blur-[40px] rounded-full -ml-10 -mb-10"></div>
+      
+      <div className="flex justify-between items-start relative z-10">
+        <CreditCard size={24} className="text-gray-500" />
+        <div className="text-right">
+          <p className="text-[8px] font-black text-white/40 uppercase tracking-[0.2em] mb-0.5">Visa Debit</p>
+          <div className="flex justify-end gap-0.5">
+            <div className="w-3.5 h-3.5 rounded-full bg-red-500/60 blur-[1px]"></div>
+            <div className="w-3.5 h-3.5 rounded-full bg-amber-500/60 -ml-2 blur-[1px]"></div>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-8 relative z-10">
+        <p className="text-xl font-bold tracking-[0.25em] text-white/90 font-mono">
+           {card?.number || '0000 0000 0000 0000'}
+        </p>
+      </div>
+
+      <div className="mt-8 flex justify-between items-end relative z-10">
+        <div className="space-y-0.5 text-left">
+          <p className="text-[7px] text-gray-500 uppercase font-black tracking-widest">Card Holder</p>
+          <p className="text-xs font-bold text-white uppercase tracking-wider truncate max-w-[150px]">{name || 'Neo User'}</p>
+        </div>
+        <div className="flex gap-4">
+           <div className="space-y-0.5 text-right">
+             <p className="text-[7px] text-gray-500 uppercase font-black tracking-widest">Expires</p>
+             <p className="text-[10px] font-bold text-white uppercase">{card?.expiry || '12/28'}</p>
+           </div>
+           {!hideCvv && (
+             <div className="space-y-0.5 text-right">
+               <p className="text-[7px] text-gray-500 uppercase font-black tracking-widest">CVV</p>
+               <p className="text-[10px] font-bold text-white uppercase">{card?.cvv || '***'}</p>
+             </div>
+           )}
+        </div>
+      </div>
+    </motion.div>
   );
 };
 
 // --- MAIN DASHBOARD ---
 
 const Dashboard = ({ setView }) => {
-  const { user, logout, accounts, createAccount, transactions, addTransaction, validatePin, addNotification } = useBank();
+  const { user, logout, accounts, createAccount, transactions, addTransaction, validatePin, addNotification, updateLoan } = useBank();
   const [activeAccountIdx, setActiveAccountIdx] = useState(0);
   const [showAddMoney, setShowAddMoney] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
@@ -712,193 +803,149 @@ const Dashboard = ({ setView }) => {
   const currentAccount = accounts[activeAccountIdx] || null;
 
   return (
-    <div className="max-w-6xl mx-auto animate-fade-in">
-      {/* Header */}
-      <header className="flex flex-col md:flex-row md:items-center justify-between mb-12 gap-6">
+    <div className="max-w-6xl mx-auto animate-fade-in px-4">
+      {/* Header Section */}
+      <header className="flex flex-col md:flex-row md:items-center justify-between mb-12 gap-6 pt-8">
         <div>
           <h1 className="text-5xl font-black mb-2 tracking-tighter">
             <span className="bg-clip-text text-transparent bg-gradient-to-r from-primary to-blue-400">NeoBank</span>
           </h1>
-          <p className="text-xl text-gray-300 flex items-center gap-2 font-medium">
-             Welcome back, <span className="text-white font-bold underline decoration-primary decoration-4 underline-offset-4">{user?.name}</span>
+          <p className="text-xl text-gray-300 font-medium tracking-tight">
+             Hello, <span className="text-white font-black italic underline decoration-primary decoration-4 underline-offset-4">{user?.name}</span>
           </p>
         </div>
         <div className="flex items-center gap-4">
-          <div className="p-3 bg-white/5 rounded-xl cursor-pointer hover:bg-white/10 transition">
-            <Bell size={20} className="text-gray-400" />
-          </div>
-          <button 
-            onClick={logout}
-            className="flex items-center gap-2 py-3 px-4 glass border-white/5 hover:bg-red-500/10 hover:border-red-500/20 text-red-500 transition-all font-semibold"
-          >
+          {user?.activeLoan > 0 && (
+             <div className="bg-amber-500/10 border border-amber-500/20 px-4 py-2 rounded-2xl hidden md:flex flex-col items-end">
+                <span className="text-[10px] text-amber-500 font-extrabold uppercase tracking-widest leading-tight">Outstanding Loan</span>
+                <span className="text-sm font-black text-white">₹{user.activeLoan.toLocaleString('en-IN')}</span>
+             </div>
+          )}
+          <button onClick={() => addNotification('System: Encrypted Session Active', 'success')} className="p-3 glass rounded-full hover:bg-white/10 transition">
+             <ShieldCheck size={20} className="text-emerald-500" />
+          </button>
+          <button onClick={logout} className="flex items-center gap-2 py-3 px-4 glass border-white/5 hover:bg-red-500/10 text-red-500 transition-all font-bold">
             <LogOut size={18} /> Logout
           </button>
         </div>
       </header>
 
-      {/* Grid Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      {/* Main Grid Content */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 pb-20">
         
-        {/* LEFT COLUMN: Account Summary & Cards (Column Span 8) */}
-        <div className="lg:col-span-8 space-y-8">
-          
-          {/* Main Account Card */}
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="glass p-8 relative overflow-hidden group"
-          >
-            <div className="absolute top-0 right-0 w-64 h-64 bg-primary/10 blur-[100px] -z-10 group-hover:bg-primary/20 transition-all duration-700"></div>
-            
-            <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
-              <div>
-                <p className="text-gray-400 text-sm font-medium uppercase tracking-wider mb-2">Total Balance</p>
-                <div className="flex items-baseline gap-2">
-                  <motion.span 
-                    initial={{ opacity: 0, x: -10 }} 
-                    animate={{ opacity: 1, x: 0 }}
-                    key={currentAccount?.balance}
-                    className="text-5xl font-black"
-                  >
-                    ₹{currentAccount?.balance ? currentAccount.balance.toLocaleString('en-IN') : '0'}
-                  </motion.span>
-                  <span className="text-primary font-bold">.00</span>
-                </div>
-                <div className="flex flex-wrap items-center gap-2 md:gap-4 mt-6">
-                   <div className="flex flex-col">
-                      <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Account &bull; {currentAccount?.type || 'Savings'}</span>
-                      <span className="text-base md:text-lg font-mono tracking-widest">{currentAccount?.accountNumber.match(/.{1,4}/g)?.join(' ')}</span>
-                   </div>
-                </div>
+        {/* LEFT COLUMN: Account & Card Details (4 Cols) */}
+        <div className="lg:col-span-4 space-y-6">
+           <VirtualCard card={currentAccount?.cardDetails} name={user?.name} hideCvv={false} />
+           
+           <div className="glass p-6 space-y-5">
+              <div className="flex justify-between items-center">
+                 <h4 className="text-[10px] font-black text-gray-500 uppercase tracking-[0.25em]">Active Account</h4>
+                 <div className={`px-2 py-1 rounded text-[9px] font-black uppercase tracking-widest ${
+                    currentAccount?.type === 'Savings' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-blue-500/10 text-blue-500'
+                 }`}>
+                    {currentAccount?.type} Active
+                 </div>
               </div>
-
-              <div className="flex flex-wrap gap-3 mt-6 md:mt-0 w-full md:w-auto">
-                <button 
-                  onClick={() => setShowAddMoney(true)}
-                  className="btn-primary flex-1 md:flex-none flex justify-center items-center gap-2 px-4 md:px-8 py-3"
-                >
-                  <Plus size={20} /> Add Funds
-                </button>
-                <button 
-                  onClick={() => setShowWithdraw(true)}
-                  className="glass border-white/10 hover:bg-white/5 flex-1 md:flex-none flex justify-center items-center gap-2 px-4 md:px-8 py-3"
-                >
-                  <ArrowUpRight size={20} /> Withdrawal
-                </button>
+              <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5 group transition hover:border-white/20">
+                 <div>
+                    <p className="text-[10px] text-gray-500 font-black uppercase mb-1">Account ID</p>
+                    <p className="text-sm font-mono tracking-wider font-bold">{currentAccount?.accountNumber}</p>
+                 </div>
+                 <Copy size={16} className="text-gray-600 cursor-pointer hover:text-white transition" onClick={() => {
+                    navigator.clipboard.writeText(currentAccount?.accountNumber);
+                    addNotification('Account ID copied', 'success');
+                 }} />
               </div>
-            </div>
-
-            {/* Quick Account Switcher */}
-            <div className="mt-12 flex gap-3 overflow-x-auto pb-4 no-scrollbar">
-              {accounts.map((acc, idx) => (
-                <div 
-                  key={acc.id} 
-                  onClick={() => setActiveAccountIdx(idx)}
-                  className={`cursor-pointer min-w-[170px] p-5 rounded-2xl border transition-all duration-300 ${
-                    activeAccountIdx === idx 
-                      ? 'bg-gradient-to-br from-primary/30 to-primary/10 border-primary shadow-[0_10px_30px_rgba(92,98,236,0.3)]' 
-                      : 'bg-white/5 border-white/5 hover:border-white/20'
-                  }`}
-                >
-                  <p className="text-[10px] uppercase font-black opacity-40 mb-1">{acc.type}</p>
-                  <p className="text-sm font-mono font-bold mb-2">...{acc.accountNumber.slice(-4)}</p>
-                  <p className="text-lg font-black tracking-tight">₹{acc.balance.toLocaleString('en-IN')}</p>
-                </div>
-              ))}
-            </div>
-          </motion.div>
-
-          {/* Graphical Representation of Active Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <motion.div 
-              whileHover={{ scale: 1.02 }}
-              className="glass p-6 bg-gradient-to-br from-[#2b2b6b] to-[#12122b] border-white/20 relative overflow-hidden group cursor-pointer"
-            >
-               <div className="absolute top-4 right-6 opacity-20"><Globe size={60} /></div>
-               <div className="flex justify-between items-start mb-12">
-                  <CreditCard size={32} className="text-white/80" />
-                  <span className="text-xs font-bold text-blue-300">VISA DEBIT</span>
-               </div>
-               <p className="text-xl font-mono tracking-[0.2em] mb-8">4532 9012 8841 0021</p>
-               <div className="flex justify-between items-end">
-                  <div>
-                    <p className="text-[10px] uppercase opacity-50">Card Holder</p>
-                    <p className="text-sm font-bold uppercase">{user?.name}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[10px] uppercase opacity-50">Expires</p>
-                    <p className="text-sm font-bold">12/28</p>
-                  </div>
-               </div>
-            </motion.div>
-            
-            <motion.div 
-              whileHover={{ scale: 1.02 }}
-              className="glass p-6 bg-gradient-to-br from-[#4b1d3f] to-[#2b1020] border-white/20 relative overflow-hidden cursor-pointer"
-            >
-               <div className="absolute -bottom-6 -right-6 opacity-10"><Smartphone size={100} /></div>
-               <h3 className="text-xl font-bold mb-2">Virtual Metal Card</h3>
-               <p className="text-gray-400 text-sm mb-6">Manage settings, freeze card or change ATM limits instantly.</p>
-               <button className="text-accent font-bold text-sm flex items-center gap-1">Manage Settings <ChevronRight size={14} /></button>
-            </motion.div>
-          </div>
-
-          {/* Features & Security Grid */}
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-               <div onClick={() => setShowUpiModal(true)} className="glass p-5 text-center cursor-pointer hover:scale-105 transition hover:bg-white/5">
-                 <div className="w-12 h-12 bg-indigo-500/20 text-indigo-400 rounded-2xl flex items-center justify-center mx-auto mb-3">
-                   <Smartphone size={24}/>
-                 </div>
-                 <span className="text-xs font-bold uppercase tracking-wider">UPI Sync</span>
-               </div>
-               <div onClick={() => addNotification('Savings module is coming soon!', 'info')} className="glass p-5 text-center cursor-pointer hover:scale-105 transition hover:bg-white/5">
-                 <div className="w-12 h-12 bg-emerald-500/20 text-emerald-400 rounded-2xl flex items-center justify-center mx-auto mb-3">
-                   <LayoutGrid size={24}/>
-                 </div>
-                 <span className="text-xs font-bold uppercase tracking-wider">Savings</span>
-               </div>
-               <div onClick={() => setShowStatementsModal(true)} className="glass p-5 text-center cursor-pointer hover:scale-105 transition hover:bg-white/5">
-                 <div className="w-12 h-12 bg-amber-500/20 text-amber-400 rounded-2xl flex items-center justify-center mx-auto mb-3">
-                   <History size={24}/>
-                 </div>
-                 <span className="text-xs font-bold uppercase tracking-wider">Statements</span>
-               </div>
-               <div onClick={() => setShowInsuranceModal(true)} className="glass p-5 text-center cursor-pointer hover:scale-105 transition hover:bg-white/5">
-                 <div className="w-12 h-12 bg-purple-500/20 text-purple-400 rounded-2xl flex items-center justify-center mx-auto mb-3">
-                   <ShieldCheck size={24}/>
-                 </div>
-                 <span className="text-xs font-bold uppercase tracking-wider">Insurance</span>
-               </div>
-               <div onClick={() => setShowLoanModal(true)} className="glass p-5 text-center cursor-pointer hover:scale-105 transition bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/20">
-                 <div className="w-12 h-12 bg-amber-500/20 text-amber-500 rounded-2xl flex items-center justify-center mx-auto mb-3">
-                   <Banknote size={24}/>
-                 </div>
-                 <span className="text-xs font-bold uppercase tracking-wider text-amber-500">Instant Loan</span>
-               </div>
-               <div onClick={() => addNotification('Server Side Security: AES-256 Enabled', 'success')} className="glass p-5 text-center cursor-pointer hover:scale-105 transition bg-primary/5 hover:bg-primary/10 border-primary/20">
-                 <div className="w-12 h-12 bg-emerald-500/20 text-emerald-400 rounded-2xl flex items-center justify-center mx-auto mb-3">
-                   <ShieldCheck size={24}/>
-                 </div>
-                 <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">Security</span>
-               </div>
-          </div>
+              <button 
+                onClick={() => addNotification('Card freeze feature available in mobile app', 'info')}
+                className="w-full py-4 glass text-[10px] font-black uppercase tracking-widest hover:bg-white/5 transition flex items-center justify-center gap-2"
+              >
+                <Lock size={12} /> Manage Card Limits
+              </button>
+           </div>
         </div>
 
-        {/* RIGHT COLUMN: Transactions (Column Span 4) */}
-        <div className="lg:col-span-4 space-y-6">
-           <div className="glass h-full flex flex-col">
-              <div className="p-6 border-b border-white/5 flex items-center justify-between">
-                <h3 className="text-xl font-bold flex items-center gap-2"><History size={20} /> History</h3>
-                <span onClick={() => setShowStatementsModal(true)} className="text-xs text-primary font-bold cursor-pointer hover:underline">See All</span>
+        {/* RIGHT COLUMN: Balance & History (8 Cols) */}
+        <div className="lg:col-span-8 space-y-8">
+           
+           {/* Main Balance Container */}
+           <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} className="glass p-8 relative overflow-hidden group">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-primary/10 blur-[100px] -z-10 group-hover:bg-primary/20 transition-all duration-700"></div>
+              
+              <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 relative z-10">
+                <div>
+                  <p className="text-gray-400 text-xs font-black uppercase tracking-[0.3em] mb-3">Available Balance</p>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-6xl font-black tracking-tighter shadow-sm">₹{currentAccount?.balance.toLocaleString('en-IN')}</span>
+                    <span className="text-primary font-black text-2xl">.00</span>
+                  </div>
+                </div>
+
+                <div className="flex gap-4 w-full md:w-auto">
+                  <button onClick={() => setShowAddMoney(true)} className="btn-primary flex-1 px-8 py-4 font-black text-sm flex items-center justify-center gap-3 transition hover:shadow-[0_0_20px_rgba(92,98,236,0.4)]">
+                    <Plus size={20} /> Add Funds
+                  </button>
+                  <button onClick={() => setShowWithdraw(true)} className="glass flex-1 px-8 py-4 font-black text-sm flex items-center justify-center gap-3 hover:bg-white/5 transition border-white/10">
+                    <ArrowUpRight size={20} /> Withdrawal
+                  </button>
+                </div>
               </div>
-              <div className="flex-1 overflow-y-auto max-h-[600px] p-6 space-y-4 no-scrollbar">
+           </motion.div>
+
+           {/* Quick Actions Grid */}
+           <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
+               <div onClick={() => setShowUpiModal(true)} className="glass p-5 text-center cursor-pointer hover:bg-white/5 transition-all duration-300 transform hover:-translate-y-1">
+                 <div className="w-12 h-12 bg-indigo-500/10 text-indigo-400 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                   <Smartphone size={22}/>
+                 </div>
+                 <span className="text-[9px] font-black uppercase tracking-widest text-gray-400">UPI Pay</span>
+               </div>
+               <div onClick={() => addNotification('Investments: Stocks & Mutual Funds coming soon', 'info')} className="glass p-5 text-center cursor-pointer hover:bg-white/5 transition-all duration-300 transform hover:-translate-y-1">
+                 <div className="w-12 h-12 bg-emerald-500/10 text-emerald-400 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                   <IndianRupee size={22}/>
+                 </div>
+                 <span className="text-[9px] font-black uppercase tracking-widest text-gray-400">Equity</span>
+               </div>
+               <div onClick={() => setShowStatementsModal(true)} className="glass p-5 text-center cursor-pointer hover:bg-white/5 transition-all duration-300 transform hover:-translate-y-1">
+                 <div className="w-12 h-12 bg-amber-500/10 text-amber-400 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                   <FileText size={22}/>
+                 </div>
+                 <span className="text-[9px] font-black uppercase tracking-widest text-gray-400">E-Statements</span>
+               </div>
+               <div onClick={() => setShowInsuranceModal(true)} className="glass p-5 text-center cursor-pointer hover:bg-white/5 transition-all duration-300 transform hover:-translate-y-1">
+                 <div className="w-12 h-12 bg-purple-500/10 text-purple-400 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                   <ShieldCheck size={22}/>
+                 </div>
+                 <span className="text-[9px] font-black uppercase tracking-widest text-gray-400">Insurance</span>
+               </div>
+                <div onClick={() => setShowLoanModal(true)} className="glass p-5 text-center cursor-pointer transition-all duration-300 transform hover:-translate-y-1 bg-amber-500/5 hover:bg-amber-500/10 border-amber-500/10">
+                 <div className="w-12 h-12 bg-amber-500/20 text-amber-500 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                   <Banknote size={22}/>
+                 </div>
+                 <span className="text-[9px] font-black uppercase tracking-widest text-amber-500">Loans</span>
+               </div>
+               <div onClick={() => addNotification('Dashboard Security: 2FA & Biometrics Enabled', 'success')} className="glass p-5 text-center cursor-pointer hover:bg-white/5 transition-all duration-300 transform hover:-translate-y-1">
+                 <div className="w-12 h-12 bg-emerald-500/10 text-emerald-400 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                   <Lock size={22}/>
+                 </div>
+                 <span className="text-[9px] font-black uppercase tracking-widest text-gray-400">Security</span>
+               </div>
+           </div>
+
+           {/* History Display */}
+           <div className="glass p-6">
+              <div className="flex justify-between items-center mb-6">
+                 <h3 className="text-xl font-bold flex items-center gap-2"><History size={20} /> History</h3>
+                 <span onClick={() => setShowStatementsModal(true)} className="text-xs text-primary font-bold cursor-pointer hover:underline">See All</span>
+              </div>
+              <div className="space-y-4">
                 {transactions.length === 0 ? (
                   <div className="h-40 flex flex-col items-center justify-center text-gray-500 space-y-2 opacity-50">
                     <History size={40} />
                     <p>No transactions yet</p>
                   </div>
                 ) : (
-                  transactions.map(t => (
+                  transactions.slice().reverse().map(t => (
                     <motion.div 
                       key={t.id} 
                       whileHover={{ x: 5 }}
@@ -932,58 +979,58 @@ const Dashboard = ({ setView }) => {
         </div>
       </div>
 
-      {/* Transaction Modals */}
-      {showAddMoney && (
-        <TransactionModal 
-          type="credit" 
-          onClose={() => setShowAddMoney(false)} 
-          account={currentAccount}
-          onConfirm={(amount, desc, method) => {
-            addTransaction(currentAccount.id, amount, 'credit', desc, method);
-            setShowAddMoney(false);
-          }}
-        />
-      )}
-
-      {showWithdraw && (
-        <TransactionModal 
-          type="debit" 
-          onClose={() => setShowWithdraw(false)} 
-          account={currentAccount}
-          validatePin={validatePin}
-          onConfirm={(amount, desc, method) => {
-            addTransaction(currentAccount.id, amount, 'debit', desc, method);
-            setShowWithdraw(false);
-          }}
-        />
-      )}
-
-      {viewingTransaction && (
-        <TransactionDetailsModal transaction={viewingTransaction} onClose={() => setViewingTransaction(null)} />
-      )}
-
-      {showUpiModal && (
-        <GenericModal title="Link UPI App" icon={<Smartphone size={32}/>} subtitle="Open Google Pay, PhonePe, or Paytm and scan the QR code to link your NeoBank account directly." onClose={() => setShowUpiModal(false)} />
-      )}
-      
-      {showStatementsModal && (
-        <GenericModal title="Account Statements" icon={<History size={32}/>} subtitle="Download your complete account statement as a PDF securely." onClose={() => setShowStatementsModal(false)} />
-      )}
-
-      {showInsuranceModal && (
-        <GenericModal title="NeoBank Protect" icon={<ShieldCheck size={32}/>} subtitle="Get insured up to ₹1,00,00,000 for as low as ₹499/year. This feature is unlocked after 30 days of active account usage." onClose={() => setShowInsuranceModal(false)} />
-      )}
-
-      {showLoanModal && (
-        <LoanModal 
-          account={currentAccount} 
-          onClose={() => setShowLoanModal(false)} 
-          onApprove={(amount) => {
-            addTransaction(currentAccount.id, amount, 'credit', 'Instant Cash Loan Disbursed', 'Direct Deposit');
-            setShowLoanModal(false);
-          }}
-        />
-      )}
+      {/* Shared Modals Portal */}
+      <AnimatePresence>
+        {showAddMoney && (
+          <TransactionModal 
+            type="credit" onClose={() => setShowAddMoney(false)} account={currentAccount}
+            onConfirm={(amount, desc, method) => {
+              addTransaction(currentAccount.id, amount, 'credit', desc, method);
+              setShowAddMoney(false);
+            }}
+          />
+        )}
+        {showWithdraw && (
+          <TransactionModal 
+            type="debit" onClose={() => setShowWithdraw(false)} account={currentAccount} validatePin={validatePin}
+            onConfirm={(amount, desc, method) => {
+              addTransaction(currentAccount.id, amount, 'debit', desc, method);
+              setShowWithdraw(false);
+            }}
+          />
+        )}
+        {viewingTransaction && (
+          <TransactionDetailsModal transaction={viewingTransaction} onClose={() => setViewingTransaction(null)} />
+        )}
+        {showUpiModal && (
+          <GenericModal 
+            title="Link UPI App" icon={<Smartphone size={32} className="text-primary"/>} 
+            subtitle="Link your account to GPay, PhonePe or Paytm instantly to start paying anywhere." onClose={() => setShowUpiModal(false)} 
+          />
+        )}
+        {showStatementsModal && (
+          <GenericModal 
+            title="Download Statement" icon={<FileText size={32} className="text-amber-500"/>} 
+            subtitle="Get your complete transaction history as a digitally signed PDF for the last 6 months." onClose={() => setShowStatementsModal(false)} 
+          />
+        )}
+        {showInsuranceModal && (
+          <GenericModal 
+            title="NeoBank Shield" icon={<ShieldCheck size={32} className="text-purple-500"/>} 
+            subtitle="Insurance protection up to ₹1 Crore for accidental or medical emergencies. Activates after 30 days." onClose={() => setShowInsuranceModal(false)} 
+          />
+        )}
+        {showLoanModal && (
+          <LoanModal 
+            account={currentAccount} onClose={() => setShowLoanModal(false)} 
+            onApprove={(amount) => {
+              addTransaction(currentAccount.id, amount, 'credit', 'Instant Cash Loan Disbursed', 'Direct Deposit');
+              updateLoan(amount, 'disburse');
+              setShowLoanModal(false);
+            }}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 };
@@ -991,15 +1038,33 @@ const Dashboard = ({ setView }) => {
 const TransactionModal = ({ type, onClose, account, onConfirm, validatePin }) => {
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
-  const [method, setMethod] = useState(type === 'credit' ? 'Fake Card' : 'Transfer');
+  const [method, setMethod] = useState(type === 'credit' ? 'Card' : 'Transfer');
   const [pin, setPin] = useState('');
   const [step, setStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
+  
+  // Payment Method Specific States
+  const [cardNum, setCardNum] = useState('');
+  const [cardPin, setCardPin] = useState('');
+  const [upiId, setUpiId] = useState('');
+  const [netBankAcc, setNetBankAcc] = useState('');
 
   const handleNext = () => {
     if (!amount || isNaN(amount) || amount <= 0) return alert('Enter valid amount');
     if (type === 'debit' && amount > account.balance) return alert('Insufficient funds');
     
+    // Realistic Validation for Credit (Add Funds)
+    if (type === 'credit') {
+       if (method === 'Card') {
+          if (cardNum.length < 16) return alert('Please enter a valid 16-digit Card Number');
+          if (cardPin.length < 4) return alert('Please enter a valid 4-digit PIN');
+       } else if (method === 'UPI') {
+          if (!upiId.includes('@')) return alert('Enter a valid UPI ID (e.g. user@okhdfc)');
+       } else if (method === 'Net Banking') {
+          if (netBankAcc.length < 10) return alert('Enter a valid Bank Account Number');
+       }
+    }
+
     if (type === 'debit') setStep(2);
     else handleSubmit();
   };
@@ -1031,7 +1096,7 @@ const TransactionModal = ({ type, onClose, account, onConfirm, validatePin }) =>
               <div>
                 <p className="text-[10px] uppercase font-black text-gray-500 mb-2">Select Method</p>
                 <div className="grid grid-cols-2 gap-2">
-                   {(type === 'credit' ? ['Fake Card', 'UPI', 'Net Banking'] : ['Bank Transfer', 'ATM Cash', 'UPI Pay']).map(m => (
+                   {(type === 'credit' ? ['Card', 'UPI', 'Net Banking'] : ['Bank Transfer', 'ATM Cash', 'UPI Pay']).map(m => (
                      <button 
                       key={m} onClick={() => setMethod(m)}
                       className={`text-xs py-2 px-3 rounded-lg border transition ${
@@ -1043,6 +1108,36 @@ const TransactionModal = ({ type, onClose, account, onConfirm, validatePin }) =>
                    ))}
                 </div>
               </div>
+
+              {/* Dynamic Payment Details Fields */}
+              {type === 'credit' && (
+                <div className="bg-white/5 p-4 rounded-2xl border border-white/5 space-y-4 animate-in fade-in zoom-in-95 duration-300">
+                   {method === 'Card' && (
+                     <div className="space-y-3">
+                        <div>
+                          <p className="text-[10px] uppercase font-black text-gray-500 mb-1 ml-1">Card Number (16 Digits)</p>
+                          <input type="text" maxLength="16" placeholder="0000 0000 0000 0000" className="input-field" value={cardNum} onChange={e => setCardNum(e.target.value.replace(/\D/g,''))} />
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase font-black text-gray-500 mb-1 ml-1">ATM PIN</p>
+                          <input type="password" maxLength="4" placeholder="••••" className="input-field text-center tracking-[0.5em]" value={cardPin} onChange={e => setCardPin(e.target.value.replace(/\D/g,''))} />
+                        </div>
+                     </div>
+                   )}
+                   {method === 'UPI' && (
+                     <div>
+                        <p className="text-[10px] uppercase font-black text-gray-500 mb-1 ml-1">UPI ID</p>
+                        <input type="text" placeholder="username@upi" className="input-field" value={upiId} onChange={e => setUpiId(e.target.value)} />
+                     </div>
+                   )}
+                   {method === 'Net Banking' && (
+                     <div>
+                        <p className="text-[10px] uppercase font-black text-gray-500 mb-1 ml-1">Account Number</p>
+                        <input type="text" placeholder="123456789012" className="input-field" value={netBankAcc} onChange={e => setNetBankAcc(e.target.value.replace(/\D/g,''))} />
+                     </div>
+                   )}
+                </div>
+              )}
               
               <div>
                 <p className="text-[10px] uppercase font-black text-gray-500 mb-2">Amount (₹)</p>
@@ -1177,85 +1272,149 @@ const TransactionDetailsModal = ({ transaction, onClose }) => {
 };
 
 const LoanModal = ({ account, onClose, onApprove }) => {
-  const [step, setStep] = useState(1);
+  const { user, updateLoan, addTransaction, validatePin } = useBank();
+  const hasActiveLoan = user?.activeLoan > 0;
+
+  const [step, setStep] = useState(hasActiveLoan ? 3 : 1); // 3 is Repayment
   const [pan, setPan] = useState('');
   const [score, setScore] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [loanOffer, setLoanOffer] = useState(0);
+  const [repayAmount, setRepayAmount] = useState('');
+  const [pin, setPin] = useState('');
 
   const startAnalysis = () => {
+    const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
     if (!pan) return alert('Please enter your PAN Card Number');
+    if (!panRegex.test(pan)) return alert('Invalid PAN Card Format. Example: ABCDE1234F');
     
     setIsAnalyzing(true);
     setTimeout(() => {
       setIsAnalyzing(false);
-      // Randomly generate score (600-900) and amount (10000-20000)
       const randomScore = Math.floor(Math.random() * (900 - 600 + 1)) + 600;
       const randomAmount = Math.floor(Math.random() * (20000 - 10000 + 1)) + 10000;
-      
       setScore(randomScore);
       setLoanOffer(randomAmount);
       setStep(2);
     }, 3000);
   };
 
+  const handleRepayment = () => {
+    const amount = parseFloat(repayAmount);
+    if (!amount || amount <= 0) return alert('Enter a valid amount');
+    if (amount > account.balance) return alert('Insufficient balance in your account');
+    if (amount > user.activeLoan) return alert('Amount exceeds your loan balance');
+    
+    if (step === 3) {
+      setStep(4); // Pin verification for repayment
+      return;
+    }
+
+    if (!validatePin(pin)) return alert('Incorrect Secure PIN');
+
+    addTransaction(account.id, amount, 'debit', 'Loan Repayment', 'Internal Transfer');
+    updateLoan(amount, 'repay');
+    onClose();
+  };
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
-       <motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} className="glass w-full max-w-sm p-8 shadow-2xl relative overflow-hidden">
-          <div className="absolute -top-24 -right-24 w-48 h-48 bg-primary/20 blur-[60px] rounded-full"></div>
+       <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-[#0f0f1a] w-full max-w-sm rounded-[32px] p-8 shadow-2xl relative overflow-hidden border border-white/10">
+          <div className="absolute -top-24 -right-24 w-48 h-48 bg-amber-500/10 blur-[60px] rounded-full"></div>
           
           <div className="flex justify-between items-center mb-8 relative z-10">
-             <h3 className="text-xl font-bold flex items-center gap-2"><Banknote className="text-amber-500" /> Instant Loan</h3>
+             <h3 className="text-xl font-bold flex items-center gap-2">
+                <Banknote className="text-amber-500" /> 
+                {hasActiveLoan ? 'Loan Payment' : 'Instant Loan'}
+             </h3>
              <X className="cursor-pointer opacity-50 hover:opacity-100 transition" onClick={onClose} />
           </div>
 
-          {step === 1 ? (
-            <div className="space-y-6 relative z-10">
+          {step === 1 && (
+            <div className="space-y-6 relative z-10 animate-in fade-in slide-in-from-bottom-4">
               <div className="p-4 bg-white/5 rounded-2xl border border-white/5">
-                <p className="text-xs text-gray-400 mb-4 font-medium italic">Enter your PAN Card number to check your instant loan eligibility. We will calculate your credit score automatically.</p>
-                <div className="space-y-4">
-                  <div>
-                    <p className="text-[10px] text-gray-500 font-bold uppercase mb-1">PAN Card Number</p>
-                    <input type="text" placeholder="ABCDE1234F" className="input-field uppercase" value={pan} onChange={e => setPan(e.target.value.toUpperCase())} />
-                  </div>
+                <p className="text-xs text-gray-400 mb-4 font-medium italic leading-relaxed">Enter your PAN Card number to check your instant loan eligibility. We will calculate your credit score automatically.</p>
+                <div>
+                  <p className="text-[10px] text-gray-500 font-bold uppercase mb-2 ml-1">PAN Card Number</p>
+                  <input type="text" placeholder="ABCDE1234F" className="input-field uppercase" value={pan} onChange={e => setPan(e.target.value.toUpperCase())} />
                 </div>
               </div>
 
-              <button 
-                onClick={startAnalysis} 
-                disabled={isAnalyzing}
-                className="btn-primary w-full py-4 flex items-center justify-center gap-3 overflow-hidden"
-              >
-                {isAnalyzing ? (
-                  <>
-                    <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }} className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full"></motion.div>
-                    <span>Calculating Score...</span>
-                  </>
-                ) : (
-                  <span>Check Eligibility</span>
-                )}
+              <button onClick={startAnalysis} disabled={isAnalyzing} className="btn-primary w-full py-4 flex items-center justify-center gap-3">
+                {isAnalyzing ? <><motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }} className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full"></motion.div><span>Calculating Score...</span></> : <span>Check Eligibility</span>}
               </button>
             </div>
-          ) : (
-            <div className="space-y-8 text-center relative z-10 animate-fade-in">
-               <div className="w-20 h-20 bg-emerald-500/20 text-emerald-500 rounded-full flex items-center justify-center mx-auto">
+          )}
+
+          {step === 2 && (
+            <div className="space-y-8 text-center relative z-10 animate-in zoom-in-95">
+               <div className="w-20 h-20 bg-emerald-500/20 text-emerald-500 rounded-full flex items-center justify-center mx-auto shadow-[0_0_30px_rgba(16,185,129,0.2)]">
                   <ShieldCheck size={40} />
                </div>
-               
                <div>
-                  <p className="text-[10px] text-gray-500 font-black uppercase tracking-widest mb-1">Approved Loan Amount</p>
+                  <p className="text-[10px] text-gray-500 font-black uppercase tracking-widest mb-2">Approved Loan Amount</p>
                   <h2 className="text-5xl font-black text-white">₹{loanOffer.toLocaleString('en-IN')}</h2>
-                  <p className="text-xs text-emerald-400 font-bold mt-2 tracking-widest uppercase">Grade {score > 750 ? 'A+' : 'B'} Success</p>
+                  <p className="text-xs text-emerald-400 font-bold mt-2 tracking-widest uppercase">Credit Grade {score > 750 ? 'A+' : 'B'} Success</p>
                </div>
-
                <div className="p-4 bg-white/5 rounded-2xl text-left border border-white/5">
-                  <div className="flex justify-between text-xs mb-2 text-gray-400"><span>Interest Rate</span><span className="text-white font-bold text-sm">0% (Special Offer)</span></div>
-                  <div className="flex justify-between text-xs text-gray-400"><span>Repayment Basis</span><span className="text-white font-bold text-sm">Automated</span></div>
+                  <div className="flex justify-between text-xs mb-2 text-gray-400"><span>Interest Rate</span><span className="text-white font-bold">0% (Limited Offer)</span></div>
+                  <div className="flex justify-between text-xs text-gray-400"><span>Duration</span><span className="text-white font-bold">Unlimited</span></div>
                </div>
-
                <div className="flex gap-3">
                   <button className="glass flex-1 py-4 font-bold" onClick={() => setStep(1)}>Retry</button>
                   <button className="btn-primary flex-[2] py-4 font-black" onClick={() => onApprove(loanOffer)}>Disburse Now</button>
+               </div>
+            </div>
+          )}
+
+          {step === 3 && (
+            <div className="space-y-6 relative z-10 animate-in fade-in">
+               <div className="bg-amber-500/10 p-5 rounded-3xl border border-amber-500/20 text-center">
+                  <p className="text-[10px] text-amber-500 font-black uppercase tracking-widest mb-1">Total Outstanding</p>
+                  <h2 className="text-3xl font-black text-white">₹{user.activeLoan.toLocaleString('en-IN')}</h2>
+               </div>
+
+               <div className="space-y-4">
+                  <div>
+                    <p className="text-[10px] text-gray-500 font-bold uppercase mb-2 ml-1">Repayment Amount (₹)</p>
+                    <input 
+                      type="number" placeholder="Enter amount to pay" className="input-field text-xl font-bold" 
+                      value={repayAmount} onChange={e => setRepayAmount(e.target.value)} 
+                    />
+                  </div>
+
+                  <div className="flex justify-between px-1">
+                     <button onClick={() => setRepayAmount(user.activeLoan)} className="text-[10px] font-black text-primary uppercase hover:underline">Pay Full Amount</button>
+                     <p className="text-[10px] font-bold text-gray-600 uppercase">Balance: ₹{account.balance.toLocaleString()}</p>
+                  </div>
+               </div>
+
+               <button onClick={handleRepayment} className="btn-primary w-full py-4 font-black">
+                  Next Step
+               </button>
+               
+               <p className="text-[10px] text-center text-gray-500 font-medium px-4">Pay back your loan to increase your future credit eligibility.</p>
+            </div>
+          )}
+
+          {step === 4 && (
+            <div className="space-y-6 text-center animate-in zoom-in-95">
+               <div className="w-16 h-16 bg-primary/20 rounded-full flex items-center justify-center mx-auto mb-2 text-primary">
+                  <Lock size={32} />
+               </div>
+               <h4 className="text-lg font-bold">Secure Authorisation</h4>
+               <p className="text-xs text-gray-400 px-4">Enter your 4-digit Secure PIN to repay ₹{parseFloat(repayAmount).toLocaleString()}.</p>
+               
+               <input 
+                 type="password" maxLength="4" className="input-field text-center text-3xl tracking-[0.8em]" 
+                 autoFocus placeholder="••••" value={pin} onChange={(e) => setPin(e.target.value)}
+               />
+
+               <div className="flex gap-3">
+                  <button className="glass flex-1 py-4 font-bold" onClick={() => setStep(3)}>Back</button>
+                  <button className="btn-primary flex-[2] py-4 font-black" onClick={handleRepayment}>
+                    Confirm & Pay
+                  </button>
                </div>
             </div>
           )}
@@ -1264,14 +1423,67 @@ const LoanModal = ({ account, onClose, onApprove }) => {
   );
 };
 
-const GenericModal = ({ title, icon, subtitle, onClose, buttonText = "Understood" }) => (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-      <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="glass w-full max-w-md p-8 text-center shadow-[0_0_50px_rgba(0,0,0,0.5)]">
-        <div className="flex justify-end mb-2"><X className="cursor-pointer opacity-50 hover:opacity-100" onClick={onClose} /></div>
-        <div className="w-16 h-16 bg-primary/20 rounded-full flex items-center justify-center mx-auto mb-6 text-primary">{icon}</div>
-        <h3 className="text-2xl font-bold mb-2">{title}</h3>
-        <p className="text-gray-400 mb-8">{subtitle}</p>
-        <button className="btn-primary w-full py-3" onClick={onClose}>{buttonText}</button>
+// --- MODAL COMPONENTS ---
+
+const SimulationModal = ({ otp, onClose }) => (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
+      <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="glass w-full max-w-sm p-8 text-center relative border-primary/20">
+        <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-6 text-primary animate-pulse">
+           <Mail size={40} />
+        </div>
+        <h3 className="text-2xl font-black mb-2">Simulated Email</h3>
+        <p className="text-gray-400 text-sm mb-8 leading-relaxed">
+           Since EmailJS is not yet configured with real keys, we have intercepted the code for you.
+        </p>
+        <div className="bg-white/5 p-6 rounded-3xl mb-8 border border-white/5">
+           <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">Your Verification Code</p>
+           <p className="text-5xl font-black tracking-[0.2em] text-primary">{otp}</p>
+        </div>
+        <button onClick={onClose} className="btn-primary w-full py-4 font-black">
+           Enter Code Now
+        </button>
       </motion.div>
     </div>
 );
+
+const EmailConfigModal = ({ config, onSave, onClose }) => {
+  const [localConfig, setLocalConfig] = useState(config);
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
+       <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="glass w-full max-w-md p-8 relative overflow-hidden">
+          <div className="flex justify-between items-center mb-8">
+             <h3 className="text-xl font-bold flex items-center gap-2">
+                <Settings className="text-primary" size={20} /> Email System Setup
+             </h3>
+             <X className="cursor-pointer opacity-50 hover:opacity-100" onClick={onClose} />
+          </div>
+          
+          <div className="space-y-5">
+             <div>
+                <p className="text-[10px] text-gray-500 font-bold uppercase mb-2 ml-1">EmailJS Public Key</p>
+                <input type="text" className="input-field" value={localConfig.publicKey} onChange={e => setLocalConfig({...localConfig, publicKey: e.target.value})} />
+             </div>
+             <div>
+                <p className="text-[10px] text-gray-500 font-bold uppercase mb-2 ml-1">Service ID</p>
+                <input type="text" className="input-field" value={localConfig.serviceId} onChange={e => setLocalConfig({...localConfig, serviceId: e.target.value})} />
+             </div>
+             <div>
+                <p className="text-[10px] text-gray-500 font-bold uppercase mb-2 ml-1">Template ID</p>
+                <input type="text" className="input-field" value={localConfig.templateId} onChange={e => setLocalConfig({...localConfig, templateId: e.target.value})} />
+             </div>
+          </div>
+
+          <div className="mt-8 p-4 bg-primary/5 rounded-2xl border border-primary/10">
+             <p className="text-[10px] text-primary-light font-medium italic">
+                Tips: Create a free account at emailjs.com, connect your Gmail, and paste your keys above to enable real email deliveries.
+             </p>
+          </div>
+
+          <button onClick={() => onSave(localConfig)} className="btn-primary w-full py-4 mt-8 font-black">
+             Save Configuration
+          </button>
+       </motion.div>
+    </div>
+  );
+};

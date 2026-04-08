@@ -12,7 +12,22 @@ export const BankProvider = ({ children }) => {
 
   const [accounts, setAccounts] = useState(() => {
     const savedAccounts = localStorage.getItem('neo_accounts');
-    return savedAccounts ? JSON.parse(savedAccounts) : [];
+    const parsed = savedAccounts ? JSON.parse(savedAccounts) : [];
+    // Migration: generate card details for older accounts to ensure UI doesn't break
+    return parsed.map(acc => {
+      if (!acc.cardDetails) {
+        return {
+           ...acc,
+           cardDetails: {
+             number: Array.from({length: 4}, () => Math.floor(1000 + Math.random() * 9000)).join(' '),
+             expiry: `12/${new Date().getFullYear() + 5}`,
+             cvv: Math.floor(100 + Math.random() * 900).toString(),
+             pin: '1234'
+           }
+        };
+      }
+      return acc;
+    });
   });
 
   const [transactions, setTransactions] = useState(() => {
@@ -25,6 +40,15 @@ export const BankProvider = ({ children }) => {
   const [registeredUsers, setRegisteredUsers] = useState(() => {
     const saved = localStorage.getItem('neo_registered_users');
     return saved ? JSON.parse(saved) : [];
+  });
+
+  const [emailConfig, setEmailConfig] = useState(() => {
+    const saved = localStorage.getItem('neo_email_config');
+    return saved ? JSON.parse(saved) : {
+      publicKey: 'YOUR_PUBLIC_KEY_HERE',
+      serviceId: 'YOUR_SERVICE_ID',
+      templateId: 'YOUR_TEMPLATE_ID'
+    };
   });
 
   useEffect(() => {
@@ -43,6 +67,10 @@ export const BankProvider = ({ children }) => {
   useEffect(() => {
     localStorage.setItem('neo_registered_users', JSON.stringify(registeredUsers));
   }, [registeredUsers]);
+
+  useEffect(() => {
+    localStorage.setItem('neo_email_config', JSON.stringify(emailConfig));
+  }, [emailConfig]);
 
   useEffect(() => {
     localStorage.setItem('neo_accounts', JSON.stringify(accounts));
@@ -68,7 +96,8 @@ export const BankProvider = ({ children }) => {
       joinedAt: new Date().toISOString(),
       expectedOtp: generatedOtp,
       isVerified: false,
-      isKycVerified: false
+      isKycVerified: false,
+      activeLoan: 0
     };
     setRegisteredUsers(prev => {
       // Remove any previously registered user with same email to simulate update
@@ -116,6 +145,10 @@ export const BankProvider = ({ children }) => {
     return Math.floor(1000000000 + Math.random() * 9000000000).toString();
   };
 
+  const generateCardNumber = () => {
+    return Array.from({length: 4}, () => Math.floor(1000 + Math.random() * 9000)).join(' ');
+  };
+
   const createAccount = (type = 'Savings', initialBalance = 0) => {
     const newAccount = {
       id: Date.now().toString(),
@@ -124,11 +157,27 @@ export const BankProvider = ({ children }) => {
       balance: initialBalance,
       currency: 'INR',
       createdAt: new Date().toISOString(),
-      label: `${type} Account`
+      label: `${type} Account`,
+      cardDetails: {
+        number: generateCardNumber(),
+        expiry: `12/${new Date().getFullYear() + 5}`, // 5 years from now
+        cvv: Math.floor(100 + Math.random() * 900).toString(),
+        pin: null // To be set by user
+      }
     };
     setAccounts(prev => [...prev, newAccount]);
     addNotification(`${type} account created: ${newAccount.accountNumber}`, 'success');
     return newAccount;
+  };
+
+  const setCardPin = (accountId, pin) => {
+    setAccounts(prev => prev.map(acc => {
+      if (acc.id === accountId) {
+        return { ...acc, cardDetails: { ...acc.cardDetails, pin } };
+      }
+      return acc;
+    }));
+    addNotification('Debit Card PIN set successfully!', 'success');
   };
 
   const addTransaction = (accountId, amount, type, description, method = 'Internal') => {
@@ -163,6 +212,13 @@ export const BankProvider = ({ children }) => {
     return user && user.withdrawalPin === pin;
   };
 
+  const updateLoan = (amount, type) => {
+    const change = type === 'disburse' ? amount : -amount;
+    const newBalance = Math.max(0, (user.activeLoan || 0) + change);
+    setUser(prev => ({ ...prev, activeLoan: newBalance }));
+    return newBalance;
+  };
+
   return (
     <BankContext.Provider value={{
       user, setUser,
@@ -171,7 +227,8 @@ export const BankProvider = ({ children }) => {
       notifications, addNotification,
       register, login, logout,
       createAccount, addTransaction,
-      validatePin
+      validatePin, updateLoan, setCardPin,
+      emailConfig, setEmailConfig
     }}>
       {children}
     </BankContext.Provider>
