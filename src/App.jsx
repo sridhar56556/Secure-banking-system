@@ -1452,3 +1452,22 @@ const EmailConfigModal = ({ config, onSave, onClose }) => {
     </div>
   );
 };
+
+const GenericModal = ({ title, subtitle, icon, buttonText, onClose }) => {
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
+       <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="glass w-full max-w-sm p-8 text-center relative overflow-hidden">
+          <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-6 text-primary">
+             {icon}
+          </div>
+          <h3 className="text-2xl font-bold mb-2">{title}</h3>
+          <p className="text-gray-400 text-sm mb-8 leading-relaxed">
+             {subtitle}
+          </p>
+          <button onClick={onClose} className="btn-primary w-full py-4 font-black">
+             {buttonText || "Continue"}
+          </button>
+       </motion.div>
+    </div>
+  );
+};
