@@ -261,7 +261,7 @@ const RegisterScreen = ({ setView }) => {
     } else {
       // Backend send-otp Fallback (using secure tunnel to local PC)
       addNotification('Sending secure verification code...', 'info');
-      fetch('https://salty-chicken-beam.loca.lt/send-otp', {
+      fetch('https://8256075acbdcc9.lhr.life/send-otp', {
         method: 'POST',
         headers: { 
            'Content-Type': 'application/json',
