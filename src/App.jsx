@@ -216,7 +216,6 @@ const AuthScreen = ({ setView }) => {
 const RegisterScreen = ({ setView }) => {
   const { register, addNotification, emailConfig } = useBank();
   const [formData, setFormData] = useState({ name: '', email: '', password: '', phone: '' });
-  const [otpToSimulate, setOtpToSimulate] = useState(null);
 
   const handleRegister = async (e) => {
     e.preventDefault();
@@ -256,54 +255,30 @@ const RegisterScreen = ({ setView }) => {
       })
       .catch((err) => {
         console.error('EmailJS Error:', err);
-        addNotification('EmailJS Error. Opening Simulation.', 'error');
-        setOtpToSimulate(newUser.expectedOtp);
+        addNotification('Email delivery delayed or failed.', 'error');
+        setView('otp');
       });
     } else {
-      // SMTP.js Direct Fallback (Works on GitHub Pages without backend!)
-      addNotification('Attempting to transmit verification code securely via SMTP...', 'info');
-      try {
-         if (!window.Email) {
-            throw new Error("SMTP.js library not loaded yet.");
-         }
-
-         const emailBody = `
-           <div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
-             <h2 style="color: #2563eb; text-align: center;">NeoBank Identity Verification</h2>
-             <p>Hi ${newUser.name.split(' ')[0]},</p>
-             <p>Please use the following 4-digit code to verify your email address. Do not share this code with anyone.</p>
-             <div style="background-color: #f3f4f6; padding: 20px; border-radius: 10px; text-align: center; margin: 20px 0;">
-               <h1 style="font-size: 40px; letter-spacing: 10px; color: #1d4ed8; margin: 0;">${newUser.expectedOtp}</h1>
-             </div>
-             <p style="font-size: 12px; color: #6b7280; text-align: center;">Sent securely via NeoBank</p>
-           </div>
-         `;
-
-         window.Email.send({
-            Host: "smtp.gmail.com",
-            Username: "bossremo665@gmail.com",
-            Password: "gmksfowbjmacjsot",
-            To: newUser.email,
-            From: "bossremo665@gmail.com",
-            Subject: "NeoBank - Your OTP Verification Code",
-            Body: emailBody
-         }).then(message => {
-            if (message === "OK") {
-               addNotification('OTP sent successfully to ' + newUser.email, 'success');
-               setView('otp');
-            } else {
-               throw new Error('SMTP Error: ' + message);
-            }
-         }).catch(err => {
-            console.error('SMTP Catch Error:', err);
-            addNotification('Email delivery failed. Opening securely in Simulation Mode.', 'error');
-            setOtpToSimulate(newUser.expectedOtp);
-         });
-      } catch (err) {
-         console.error('SMTP Setup Error:', err);
-         addNotification('Email delivery failed. Opening securely in Simulation Mode.', 'error');
-         setOtpToSimulate(newUser.expectedOtp);
-      }
+      // Backend send-otp Fallback
+      addNotification('Sending secure verification code...', 'info');
+      fetch('http://localhost:5000/send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: newUser.email, name: newUser.name, expectedOtp: newUser.expectedOtp })
+      })
+      .then(res => {
+        if (!res.ok) throw new Error('Backend failed to send email');
+        return res.json();
+      })
+      .then(data => {
+        addNotification('OTP sent successfully to ' + newUser.email, 'success');
+        setView('otp');
+      })
+      .catch(err => {
+        console.error('Backend Send Error:', err);
+        addNotification('Email delivery delayed. Check console.', 'error');
+        setView('otp');
+      });
     }
 
     // LOG OTP TO CONSOLE AS FALLBACK
@@ -356,13 +331,6 @@ const RegisterScreen = ({ setView }) => {
         </form>
       </div>
 
-      {/* Simulation Modal */}
-      {otpToSimulate && (
-         <SimulationModal 
-            otp={otpToSimulate} 
-            onClose={() => { setOtpToSimulate(null); setView('otp'); }} 
-         />
-      )}
     </div>
   );
 };
@@ -1442,27 +1410,6 @@ const LoanModal = ({ account, onClose, onApprove }) => {
 };
 
 // --- MODAL COMPONENTS ---
-
-const SimulationModal = ({ otp, onClose }) => (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
-      <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="glass w-full max-w-sm p-8 text-center relative border-primary/20">
-        <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-6 text-primary animate-pulse">
-           <Mail size={40} />
-        </div>
-        <h3 className="text-2xl font-black mb-2">Simulated Email</h3>
-        <p className="text-gray-400 text-sm mb-8 leading-relaxed">
-           Since EmailJS is not yet configured with real keys, we have intercepted the code for you.
-        </p>
-        <div className="bg-white/5 p-6 rounded-3xl mb-8 border border-white/5">
-           <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">Your Verification Code</p>
-           <p className="text-5xl font-black tracking-[0.2em] text-primary">{otp}</p>
-        </div>
-        <button onClick={onClose} className="btn-primary w-full py-4 font-black">
-           Enter Code Now
-        </button>
-      </motion.div>
-    </div>
-);
 
 const EmailConfigModal = ({ config, onSave, onClose }) => {
   const [localConfig, setLocalConfig] = useState(config);
