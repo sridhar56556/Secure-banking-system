@@ -260,11 +260,14 @@ const RegisterScreen = ({ setView }) => {
         setOtpToSimulate(newUser.expectedOtp);
       });
     } else {
-      // Backend Fallback (Works on mobile when using local IP!)
+      // Backend Fallback (Works on mobile when using local IP or a hosted backend!)
       addNotification('Attempting to transmit verification code securely...', 'info');
       try {
          // Dynamically build URL to support mobile devices connecting to the desktop
-         const backendUrl = `${window.location.protocol}//${window.location.hostname}:5000/send-otp`;
+         // Or use VITE_BACKEND_URL from environment if deployed
+         const defaultBackendUrl = `${window.location.protocol}//${window.location.hostname}:5000/send-otp`;
+         const backendUrl = import.meta.env.VITE_BACKEND_URL || defaultBackendUrl;
+         
          const response = await fetch(backendUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
