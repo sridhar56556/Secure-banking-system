@@ -385,9 +385,9 @@ const RegisterScreen = ({ setView }) => {
           <div>
             <label className="text-sm text-gray-400 ml-2 mb-1 block">Mobile Number</label>
             <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium">+91</span>
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold tracking-tight">+91</span>
               <input 
-                type="tel" className="input-field pl-12" placeholder="9876543210"
+                type="tel" className="input-field !pl-12" placeholder="9876543210"
                 value={formData.phone} onChange={handlePhoneChange} required
                 maxLength={10}
               />
