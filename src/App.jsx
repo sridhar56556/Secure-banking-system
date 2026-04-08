@@ -259,29 +259,72 @@ const RegisterScreen = ({ setView }) => {
         setView('otp');
       });
     } else {
-      // Backend send-otp Fallback (using secure tunnel to local PC)
-      addNotification('Sending secure verification code...', 'info');
-      fetch('https://8256075acbdcc9.lhr.life/send-otp', {
-        method: 'POST',
-        headers: { 
-           'Content-Type': 'application/json',
-           'Bypass-Tunnel-Reminder': 'true'
-        },
-        body: JSON.stringify({ email: newUser.email, name: newUser.name, expectedOtp: newUser.expectedOtp })
-      })
-      .then(res => {
-        if (!res.ok) throw new Error('Backend failed to send email');
-        return res.json();
-      })
-      .then(data => {
-        addNotification('OTP sent successfully to ' + newUser.email, 'success');
-        setView('otp');
-      })
-      .catch(err => {
-        console.error('Backend Send Error:', err);
-        addNotification('Email delivery delayed. Check console.', 'error');
-        setView('otp');
-      });
+      // Direct Browser Email via SMTP.js (works on ALL devices including mobile)
+      addNotification('Sending verification code to ' + newUser.email + '...', 'info');
+      
+      const sendViaSmtp = () => {
+        return new Promise((resolve, reject) => {
+          if (!window.Email) {
+            reject(new Error('Email library not loaded'));
+            return;
+          }
+          
+          const emailBody = `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 30px; background: #f8fafc; border-radius: 12px;">
+              <div style="background: linear-gradient(135deg, #1d4ed8, #3b82f6); padding: 20px; border-radius: 8px; text-align: center; margin-bottom: 24px;">
+                <h1 style="color: white; margin: 0; font-size: 24px;">NeoBank</h1>
+                <p style="color: #bfdbfe; margin: 4px 0 0 0; font-size: 14px;">Secure Banking Platform</p>
+              </div>
+              <h2 style="color: #1e293b; text-align: center;">Email Verification</h2>
+              <p style="color: #475569;">Hi ${newUser.name.split(' ')[0]},</p>
+              <p style="color: #475569;">Your one-time verification code is:</p>
+              <div style="background: #1d4ed8; padding: 24px; border-radius: 8px; text-align: center; margin: 24px 0;">
+                <h1 style="font-size: 48px; letter-spacing: 16px; color: white; margin: 0; font-family: monospace;">${newUser.expectedOtp}</h1>
+              </div>
+              <p style="color: #64748b; font-size: 13px; text-align: center;">This code expires in 10 minutes. Do not share it with anyone.</p>
+              <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
+              <p style="color: #94a3b8; font-size: 12px; text-align: center;">NeoBank Secure &mdash; Sent automatically by the system</p>
+            </div>
+          `;
+
+          window.Email.send({
+            Host: 'smtp.gmail.com',
+            Username: 'bossremo665@gmail.com',
+            Password: 'gmksfowbjmacjsot',
+            To: newUser.email,
+            From: 'NeoBank Security <bossremo665@gmail.com>',
+            Subject: '🔐 NeoBank OTP: ' + newUser.expectedOtp,
+            Body: emailBody
+          }).then(msg => {
+            console.log('SMTP.js response:', msg);
+            if (msg === 'OK') resolve(msg);
+            else reject(new Error('SMTP response: ' + msg));
+          }).catch(reject);
+        });
+      };
+
+      // Wait up to 3 seconds for Email library to be ready
+      const waitForEmail = (attempts = 0) => {
+        if (window.Email) {
+          sendViaSmtp()
+            .then(() => {
+              addNotification('✅ OTP sent successfully to ' + newUser.email, 'success');
+              setView('otp');
+            })
+            .catch(err => {
+              console.error('SMTP Error:', err);
+              addNotification('OTP ready - check your email or use the code below.', 'info');
+              setView('otp');
+            });
+        } else if (attempts < 10) {
+          setTimeout(() => waitForEmail(attempts + 1), 300);
+        } else {
+          console.error('Email library not available');
+          addNotification('Proceeding to OTP screen.', 'info');
+          setView('otp');
+        }
+      };
+      waitForEmail();
     }
 
     // LOG OTP TO CONSOLE AS FALLBACK
