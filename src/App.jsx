@@ -247,7 +247,8 @@ const sendOtpEmail = (userObj, emailConfig, addNotification) => {
   } else {
     // Send OTP via Node.js backend
     addNotification('Sending OTP to ' + userObj.email + '...', 'info');
-    return fetch('http://localhost:5000/send-otp', {
+    const backendUrl = emailConfig?.backendUrl || 'http://localhost:5000';
+    return fetch(`${backendUrl}/send-otp`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: userObj.email, name: userObj.name, expectedOtp: userObj.expectedOtp })

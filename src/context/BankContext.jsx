@@ -47,7 +47,8 @@ export const BankProvider = ({ children }) => {
     return saved ? JSON.parse(saved) : {
       publicKey: 'YOUR_PUBLIC_KEY_HERE',
       serviceId: 'YOUR_SERVICE_ID',
-      templateId: 'YOUR_TEMPLATE_ID'
+      templateId: 'YOUR_TEMPLATE_ID',
+      backendUrl: 'http://localhost:5000'
     };
   });
 
