@@ -592,7 +592,7 @@ const OtpScreen = ({ setView }) => {
 };
 
 const PinScreen = ({ setView }) => {
-  const { user, setUser, addNotification, logout } = useBank();
+  const { user, setUser, addNotification, logout, createAccount } = useBank();
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
