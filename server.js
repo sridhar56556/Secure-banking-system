@@ -10,6 +10,7 @@ app.use(cors({
   origin: [
     'https://sridhar56556.github.io', 
     'https://secure-banking-system-nyv5.onrender.com',
+    'https://neobank-cfah.onrender.com',
     'http://localhost:5173', 
     'http://localhost:3000'
   ],
