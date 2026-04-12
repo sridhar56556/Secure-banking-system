@@ -7,7 +7,12 @@ dotenv.config();
 
 const app = express();
 app.use(cors({
-  origin: ['https://sridhar56556.github.io', 'http://localhost:5173', 'http://localhost:3000'],
+  origin: [
+    'https://sridhar56556.github.io', 
+    'https://secure-banking-system-nyv5.onrender.com',
+    'http://localhost:5173', 
+    'http://localhost:3000'
+  ],
   methods: ['GET', 'POST'],
   allowedHeaders: ['Content-Type']
 }));
