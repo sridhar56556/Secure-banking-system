@@ -44,12 +44,21 @@ export const BankProvider = ({ children }) => {
 
   const [emailConfig, setEmailConfig] = useState(() => {
     const saved = localStorage.getItem('neo_email_config');
-    return saved ? JSON.parse(saved) : {
+    const parsed = saved ? JSON.parse(saved) : null;
+    
+    const defaultConfig = {
       publicKey: 'YOUR_PUBLIC_KEY_HERE',
       serviceId: 'YOUR_SERVICE_ID',
       templateId: 'YOUR_TEMPLATE_ID',
       backendUrl: 'https://neobank-9fm4.onrender.com'
     };
+
+    // FORCE MIGRATION: If the user has the old localhost saved, update it to the live Render URL
+    if (parsed && (parsed.backendUrl === 'http://localhost:5000' || !parsed.backendUrl)) {
+      return { ...parsed, ...defaultConfig };
+    }
+
+    return parsed || defaultConfig;
   });
 
   useEffect(() => {
