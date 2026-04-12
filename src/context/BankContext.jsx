@@ -153,8 +153,10 @@ export const BankProvider = ({ children }) => {
   };
 
   const createAccount = (type = 'Savings', initialBalance = 0) => {
+    if (!user) return null;
     const newAccount = {
       id: Date.now().toString(),
+      ownerId: user.id, // Link account to the current user
       accountNumber: generateAccountNumber(),
       type,
       balance: initialBalance,
@@ -222,11 +224,19 @@ export const BankProvider = ({ children }) => {
     return newBalance;
   };
 
+  const userAccounts = user ? accounts.filter(acc => acc.ownerId === user.id) : [];
+  const userAccountIds = userAccounts.map(acc => acc.id);
+  const userTransactions = transactions.filter(t => userAccountIds.includes(t.accountId));
+
   return (
     <BankContext.Provider value={{
       user, setUser,
-      accounts, setAccounts,
-      transactions, setTransactions,
+      accounts: userAccounts, // Only provide user's accounts to the app
+      allAccounts: accounts, // Keep all accounts for sync if needed
+      setAccounts,
+      transactions: userTransactions, // Only provide user's transactions
+      allTransactions: transactions,
+      setTransactions,
       notifications, addNotification,
       register, login, logout,
       createAccount, addTransaction,

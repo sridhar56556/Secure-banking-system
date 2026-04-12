@@ -33,31 +33,27 @@ const MainLayout = () => {
   useEffect(() => {
     // If no user, default to auth unless we are in the middle of registration
     if (!user) {
-      if (view !== 'register') setView('auth');
+      if (view !== 'register' && view !== 'auth') setView('auth');
       return;
     }
 
-    // Force verified users away from the OTP screen
-    if (user.isVerified && view === 'otp') {
-      if (user.withdrawalPin) {
-        setView(accounts.length === 0 ? 'accountSelection' : 'dashboard');
-      } else {
-        setView('pin');
-      }
+    // Process logged-in user state
+    if (!user.isVerified) {
+      if (view !== 'otp') setView('otp');
       return;
     }
 
-    // Auto-route from the auth screen once logged in
-    if (view === 'auth') {
-      if (user.isVerified) {
-        if (user.withdrawalPin) {
-          setView(accounts.length === 0 ? 'accountSelection' : 'dashboard');
-        } else {
-          setView('pin');
-        }
-      } else {
-        setView('otp');
-      }
+    // User is verified. Check if they have an account.
+    // Use accounts (which is filtered to current user in context)
+    const hasAccount = accounts.length > 0;
+
+    // If already in a setup screen, don't force redirect to dashboard yet
+    const isSettingUp = ['accountSelection', 'kycForm', 'pin', 'accountCreated'].includes(view);
+
+    if (!hasAccount && !isSettingUp) {
+      setView('accountSelection');
+    } else if (hasAccount && !isSettingUp && view !== 'dashboard') {
+      setView('dashboard');
     }
   }, [user, accounts.length, view]);
 
@@ -512,7 +508,7 @@ const OtpScreen = ({ setView }) => {
     if (user && otp === user.expectedOtp) {
       setUser({ ...user, isVerified: true });
       addNotification('Email verified successfully!', 'success');
-      setView('pin');
+      setView('accountSelection');
     } else {
       addNotification(`Invalid OTP. Please check your email.`, 'error');
     }
@@ -585,7 +581,7 @@ const OtpScreen = ({ setView }) => {
 
           <div className="pt-2 border-t border-white/5">
             <p className="text-gray-600 text-[10px] mb-2 uppercase tracking-wider font-bold">Can't receive email?</p>
-            <button type="button" onClick={() => { setUser({ ...user, isVerified: true }); setView('pin'); addNotification('Bypassed Email for Testing', 'info'); }} className="text-gray-500 hover:text-white text-xs underline">
+            <button type="button" onClick={() => { setUser({ ...user, isVerified: true }); setView('accountSelection'); addNotification('Bypassed Email for Testing', 'info'); }} className="text-gray-500 hover:text-white text-xs underline">
                [DEV] Skip Verification
             </button>
           </div>
@@ -612,27 +608,17 @@ const PinScreen = ({ setView }) => {
       return;
     }
 
-    // Set PIN. We don't create account yet.
-    setUser({ ...user, withdrawalPin: pin });
-    addNotification('Security PIN set successfully', 'success');
-    setShowSuccess(true);
+    // Set PIN and create account
+    const updatedUser = { ...user, withdrawalPin: pin };
+    setUser(updatedUser);
+    createAccount(user.selectedAccountType || 'Savings', 1000); 
+    addNotification('Security PIN set successfully!', 'success');
+    setView('accountCreated');
   };
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[80vh]">
-      {showSuccess && (
-        <GenericModal 
-           title="Registration Successful!" 
-           icon={<CheckCircle size={32} />} 
-           subtitle="Your account profile is created successfully. Please login to continue to finalize your account selection." 
-           buttonText="Go to Login"
-           onClose={() => {
-             setShowSuccess(false);
-             logout();
-             setView('auth');
-           }} 
-        />
-      )}
+      {/* Registration success is now handled by redirecting to AccountCreatedScreen */}
       <div className="glass p-10 w-full max-w-md text-center relative">
         <button onClick={() => { logout(); setView('auth'); }} className="text-gray-400 mb-6 hover:text-white flex items-center gap-1 text-sm absolute top-6 left-6">
           <X size={14} /> Back
@@ -757,12 +743,10 @@ const KycFormScreen = ({ setView }) => {
       return;
     }
 
-    // Complete KYC and create account
+    // Save KYC details to user object
     const updatedUser = { ...user, ...formData, panCard: formData.panCard.toUpperCase(), isKycVerified: true };
     setUser(updatedUser);
-    createAccount(user.selectedAccountType || 'Savings', 1000); 
-    addNotification('Account created successfully!', 'success');
-    setView('accountCreated');
+    setView('pin'); // Go to security code setup next
   };
 
   return (
@@ -771,11 +755,23 @@ const KycFormScreen = ({ setView }) => {
         <button onClick={() => setView('accountSelection')} className="text-gray-400 mb-6 hover:text-white flex items-center gap-1 text-sm">
           <X size={14} /> Back
         </button>
-        <h2 className="text-3xl font-bold mb-2">Provide KYC Details</h2>
-        <p className="text-gray-400 mb-8 text-sm">Required to open your {user?.selectedAccountType} account.</p>
+        <h2 className="text-3xl font-bold mb-2">Review Profile & KYC</h2>
+        <p className="text-gray-400 mb-8 text-sm">Verify your details to finalize your {user?.selectedAccountType} account.</p>
         
         <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="md:col-span-2">
+          <div>
+            <label className="text-sm text-gray-400 ml-2 mb-1 block">Registered Name</label>
+            <input type="text" className="input-field opacity-60 pointer-events-none" value={user?.name || ''} readOnly />
+          </div>
+          <div>
+            <label className="text-sm text-gray-400 ml-2 mb-1 block">Email Address</label>
+            <input type="text" className="input-field opacity-60 pointer-events-none" value={user?.email || ''} readOnly />
+          </div>
+          <div>
+            <label className="text-sm text-gray-400 ml-2 mb-1 block">Phone Number</label>
+            <input type="text" className="input-field opacity-60 pointer-events-none" value={user?.phone || ''} readOnly />
+          </div>
+          <div>
             <label className="text-sm text-gray-400 ml-2 mb-1 block">PAN Card Number</label>
             <input 
               type="text" className="input-field font-mono tracking-widest uppercase" placeholder="ABCDE1234F" maxLength={10}
