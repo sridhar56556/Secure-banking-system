@@ -262,8 +262,8 @@ const sendOtpEmail = (userObj, emailConfig, addNotification) => {
   if (useRealEmail) {
     const templateParams = {
       email: userObj.email,
-      to_name: userObj.name,
-      otp_code: userObj.expectedOtp
+      user_name: userObj.name,
+      otp: userObj.expectedOtp
     };
 
     addNotification('Sending verification code via EmailJS...', 'info');
