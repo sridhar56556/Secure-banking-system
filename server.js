@@ -104,7 +104,9 @@ app.post("/send-otp", async (req, res) => {
 // ==============================
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
-  console.log(`Email Backend running on port ${PORT}`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Email Backend running on all interfaces at port ${PORT}`);
+  console.log(`Local Access: http://localhost:${PORT}`);
+  console.log(`Network Access: http://10.211.225.183:${PORT}`);
   console.log(`Sending emails as: ${emailUser}`);
 });

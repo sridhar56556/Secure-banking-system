@@ -2,9 +2,11 @@ services:
   - type: web
     name: neobank-email-backend
     env: node
-    buildCommand: npm install
+    buildCommand: npm run render-build
     startCommand: node server.js
     envVars:
+      - key: NODE_VERSION
+        value: 20.20.2
       - key: EMAIL_USER
         value: bossremo665@gmail.com
       - key: EMAIL_PASS
