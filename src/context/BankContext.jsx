@@ -48,7 +48,7 @@ export const BankProvider = ({ children }) => {
       publicKey: 'YOUR_PUBLIC_KEY_HERE',
       serviceId: 'YOUR_SERVICE_ID',
       templateId: 'YOUR_TEMPLATE_ID',
-      backendUrl: 'http://localhost:5000'
+      backendUrl: 'https://neobank-9fm4.onrender.com'
     };
   });
 
