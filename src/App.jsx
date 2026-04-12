@@ -261,7 +261,7 @@ const sendOtpEmail = (userObj, emailConfig, addNotification) => {
 
   if (useRealEmail) {
     const templateParams = {
-      to_email: userObj.email,
+      email: userObj.email,
       to_name: userObj.name,
       otp_code: userObj.expectedOtp
     };
@@ -271,7 +271,8 @@ const sendOtpEmail = (userObj, emailConfig, addNotification) => {
     return window.emailjs.send(
       emailConfig.serviceId,
       emailConfig.templateId,
-      templateParams
+      templateParams,
+      emailConfig.publicKey
     )
     .then(() => {
       addNotification('✅ OTP sent successfully to ' + userObj.email, 'success');

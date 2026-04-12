@@ -43,9 +43,6 @@ export const BankProvider = ({ children }) => {
   });
 
   const [emailConfig, setEmailConfig] = useState(() => {
-    const saved = localStorage.getItem('neo_email_config');
-    const parsed = saved ? JSON.parse(saved) : null;
-    
     const defaultConfig = {
       publicKey: 'OlipVu9tnwQm2G88v',
       serviceId: 'service_yy0i1sd',
@@ -53,12 +50,8 @@ export const BankProvider = ({ children }) => {
       backendUrl: 'https://neobank-cfah.onrender.com'
     };
 
-    // FORCE MIGRATION: If the user has an old URL saved, update it to the latest live Render URL
-    if (parsed && (parsed.backendUrl.includes('localhost') || parsed.backendUrl.includes('neobank-9fm4'))) {
-      return { ...parsed, ...defaultConfig };
-    }
-
-    return parsed || defaultConfig;
+    // ALWAYS return defaultConfig to ensure the latest keys are used for the user
+    return defaultConfig;
   });
 
   useEffect(() => {
