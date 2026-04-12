@@ -612,7 +612,7 @@ const PinScreen = ({ setView }) => {
     const updatedUser = { ...user, withdrawalPin: pin };
     setUser(updatedUser);
     createAccount(user.selectedAccountType || 'Savings', 1000); 
-    addNotification('Security PIN set successfully!', 'success');
+    addNotification('Account Security Code Activated!', 'success');
     setView('accountCreated');
   };
 
@@ -701,10 +701,11 @@ const AccountSelectionScreen = ({ setView }) => {
 };
 
 const KycFormScreen = ({ setView }) => {
-  const { user, setUser, createAccount, addNotification } = useBank();
+  const { user, setUser, addNotification } = useBank();
   const [formData, setFormData] = useState({
     panCard: '', dob: user?.dob || '', address: '', city: '', state: '', pincode: ''
   });
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
 
   // Calculate max date (18 years ago from today) for the date picker
   const getMaxDobDate = () => {
@@ -746,32 +747,50 @@ const KycFormScreen = ({ setView }) => {
     // Save KYC details to user object
     const updatedUser = { ...user, ...formData, panCard: formData.panCard.toUpperCase(), isKycVerified: true };
     setUser(updatedUser);
-    setView('pin'); // Go to security code setup next
+    setShowSuccessModal(true);
   };
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[80vh] py-8">
+      {showSuccessModal && (
+        <GenericModal 
+           title="Registration Completed!" 
+           icon={<CheckCircle size={32} className="text-emerald-500" />} 
+           subtitle="Your profile registration is now complete. Please set a secure withdrawal PIN to activate your account." 
+           buttonText="Set Secure Code"
+           onClose={() => {
+             setShowSuccessModal(false);
+             setView('pin');
+           }} 
+        />
+      )}
       <div className="glass p-10 w-full max-w-2xl">
         <button onClick={() => setView('accountSelection')} className="text-gray-400 mb-6 hover:text-white flex items-center gap-1 text-sm">
           <X size={14} /> Back
         </button>
-        <h2 className="text-3xl font-bold mb-2">Review Profile & KYC</h2>
-        <p className="text-gray-400 mb-8 text-sm">Verify your details to finalize your {user?.selectedAccountType} account.</p>
+        <h2 className="text-3xl font-bold mb-2">Finalize Your Profile</h2>
+        <p className="text-gray-400 mb-8 text-sm">Confirm your details to open your {user?.selectedAccountType} account.</p>
         
         <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="text-sm text-gray-400 ml-2 mb-1 block">Registered Name</label>
-            <input type="text" className="input-field opacity-60 pointer-events-none" value={user?.name || ''} readOnly />
+          <div className="md:col-span-2 space-y-4 mb-4 p-4 bg-white/5 rounded-2xl border border-white/5">
+             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="text-[10px] text-gray-500 uppercase font-black mb-1 block">Email ID</label>
+                  <p className="text-sm font-bold truncate">{user?.email}</p>
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-500 uppercase font-black mb-1 block">Phone Number</label>
+                  <p className="text-sm font-bold">{user?.phone}</p>
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-500 uppercase font-black mb-1 block">Password</label>
+                  <p className="text-sm font-bold">••••••••</p>
+                </div>
+             </div>
           </div>
-          <div>
-            <label className="text-sm text-gray-400 ml-2 mb-1 block">Email Address</label>
-            <input type="text" className="input-field opacity-60 pointer-events-none" value={user?.email || ''} readOnly />
-          </div>
-          <div>
-            <label className="text-sm text-gray-400 ml-2 mb-1 block">Phone Number</label>
-            <input type="text" className="input-field opacity-60 pointer-events-none" value={user?.phone || ''} readOnly />
-          </div>
-          <div>
+
+
+          <div className="md:col-span-2">
             <label className="text-sm text-gray-400 ml-2 mb-1 block">PAN Card Number</label>
             <input 
               type="text" className="input-field font-mono tracking-widest uppercase" placeholder="ABCDE1234F" maxLength={10}
