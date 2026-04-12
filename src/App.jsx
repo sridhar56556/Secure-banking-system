@@ -64,7 +64,7 @@ const MainLayout = () => {
   return (
     <div className="min-h-screen">
       {/* Notifications Toast */}
-      <div className="fixed top-6 right-6 z-[100] flex flex-col gap-2">
+      <div className="fixed top-6 right-6 z-[110] flex flex-col gap-2">
         <AnimatePresence>
           {notifications.map(n => (
             <motion.div 
@@ -154,9 +154,27 @@ const MainLayout = () => {
 // --- AUTH SCREENS ---
 
 const AuthScreen = ({ setView }) => {
-  const { login } = useBank();
+  const { login, emailConfig } = useBank();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [backendStatus, setBackendStatus] = useState('checking'); // 'checking', 'online', 'offline'
+
+  useEffect(() => {
+    const checkBackend = async () => {
+      try {
+        const url = emailConfig?.backendUrl || 'http://localhost:5000';
+        const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
+        if (res.ok) setBackendStatus('online');
+        else setBackendStatus('offline');
+      } catch (err) {
+        setBackendStatus('offline');
+      }
+    };
+    checkBackend();
+    const interval = setInterval(checkBackend, 10000);
+    return () => clearInterval(interval);
+  }, [emailConfig?.backendUrl]);
 
   const handleLogin = (e) => {
     e.preventDefault();
@@ -185,28 +203,46 @@ const AuthScreen = ({ setView }) => {
               required
             />
           </div>
-          <div className="text-left">
+          <div className="text-left relative">
             <label className="text-sm text-gray-400 ml-2 mb-1 block">Password</label>
             <input 
-              type="password" 
-              className="input-field" 
+              type={showPassword ? "text" : "password"} 
+              className="input-field pr-12" 
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
             />
+            <button 
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-4 top-[38px] text-gray-500 hover:text-white transition"
+            >
+              {showPassword ? <X size={18} /> : <Lock size={18} />}
+            </button>
           </div>
-          <button type="submit" className="btn-primary w-full py-4 text-lg">Login</button>
+          <button type="submit" className="btn-primary w-full py-4 text-lg mt-2">Login to Account</button>
         </form>
 
-        <div className="mt-8 pt-6 border-t border-white/5">
+        <div className="mt-8 pt-6 border-t border-white/5 flex flex-col items-center">
           <p className="text-gray-400 mb-4 text-sm">Don't have an account?</p>
           <button 
             onClick={() => setView('register')}
-            className="text-primary font-semibold hover:underline flex items-center justify-center mx-auto"
+            className="text-primary font-semibold hover:underline flex items-center justify-center mx-auto mb-6"
           >
             Create New Account <ChevronRight size={16} />
           </button>
+          
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/5">
+            <div className={`w-2 h-2 rounded-full ${
+              backendStatus === 'online' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 
+              backendStatus === 'offline' ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]' : 
+              'bg-gray-500 animate-pulse'
+            }`}></div>
+            <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+              Backend Server: {backendStatus}
+            </span>
+          </div>
         </div>
       </div>
     </div>
@@ -262,7 +298,11 @@ const sendOtpEmail = (userObj, emailConfig, addNotification) => {
     })
     .catch(err => {
       console.error('Email Error:', err);
-      addNotification('Email server unreachable. OTP is in browser console (F12).', 'error');
+      // If it's a CORS issue or connection refused, this helps debug
+      const errorMsg = err.message.includes('Failed to fetch') 
+        ? 'Cannot connect to email server at ' + backendUrl 
+        : 'Email server error. Check console.';
+      addNotification(errorMsg, 'error');
     });
   }
 };
@@ -272,6 +312,7 @@ const RegisterScreen = ({ setView }) => {
   const [formData, setFormData] = useState({ name: '', email: '', password: '', phone: '', dob: '' });
   const [phoneError, setPhoneError] = useState('');
   const [dobError, setDobError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   // Phone number handler: only allow digits, max 10, must start with 6/7/8/9
   const handlePhoneChange = (e) => {
@@ -406,13 +447,20 @@ const RegisterScreen = ({ setView }) => {
             />
             {dobError && <p className="text-red-400 text-xs mt-1 ml-2">{dobError}</p>}
           </div>
-          <div className="md:col-span-2">
+          <div className="md:col-span-2 relative">
             <label className="text-sm text-gray-400 ml-2 mb-1 block">Password</label>
             <input 
-              type="password" className="input-field" placeholder="Create a strong password"
+              type={showPassword ? "text" : "password"} className="input-field pr-12" placeholder="Create a strong password"
               value={formData.password} onChange={(e) => setFormData({...formData, password: e.target.value})} required minLength={8}
             />
-            <p className="text-gray-600 text-xs mt-1 ml-2">Min 8 chars with letters, numbers, and special characters</p>
+            <button 
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-4 top-[34px] text-gray-500 hover:text-white transition"
+            >
+              {showPassword ? <X size={18} /> : <Lock size={18} />}
+            </button>
+            <p className="text-gray-600 text-[10px] mt-1 ml-2">Min 8 chars with letters, numbers & special characters</p>
           </div>
           <div className="md:col-span-2 mt-4">
             <button type="submit" className="btn-primary w-full py-4 text-lg">Continue to Verification</button>
@@ -437,6 +485,26 @@ const OtpScreen = ({ setView }) => {
       return () => clearTimeout(timer);
     }
   }, [resendCooldown]);
+
+  // AUTO-SEND ON MOUNT: Corrected logic to ensure OTP is sent when user returns to the app
+  useEffect(() => {
+    const triggerAutoSend = async () => {
+      if (!user || user.isVerified) return;
+
+      // Check if this is a fresh registration (joined in last 10 seconds)
+      // If it is, handleRegister already sent the OTP, so we skip to avoid double-mailing.
+      const joinedAt = new Date(user.joinedAt).getTime();
+      const now = new Date().getTime();
+      const isNewRegistration = (now - joinedAt) < 10000;
+
+      if (!isNewRegistration) {
+        console.log("Detected returning unverified user. Auto-sending fresh OTP...");
+        await handleResendOtp();
+      }
+    };
+    
+    triggerAutoSend();
+  }, []); // Run once on component mount
 
   const handleVerify = (e) => {
     e.preventDefault();
@@ -1186,7 +1254,7 @@ const Dashboard = ({ setView }) => {
 const TransactionModal = ({ type, onClose, account, onConfirm, validatePin }) => {
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
-  const [method, setMethod] = useState(type === 'credit' ? 'Card' : 'Transfer');
+  const [method, setMethod] = useState(type === 'credit' ? 'Card' : 'Bank Transfer');
   const [pin, setPin] = useState('');
   const [step, setStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
@@ -1598,6 +1666,10 @@ const EmailConfigModal = ({ config, onSave, onClose }) => {
              <div>
                 <p className="text-[10px] text-gray-500 font-bold uppercase mb-2 ml-1">Template ID</p>
                 <input type="text" className="input-field" value={localConfig.templateId} onChange={e => setLocalConfig({...localConfig, templateId: e.target.value})} />
+             </div>
+             <div>
+                <p className="text-[10px] text-gray-500 font-bold uppercase mb-2 ml-1">Node.js Backend URL (Simulation)</p>
+                <input type="text" className="input-field" value={localConfig.backendUrl} onChange={e => setLocalConfig({...localConfig, backendUrl: e.target.value})} />
              </div>
           </div>
 
